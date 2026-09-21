@@ -1,0 +1,39 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+build/
+
+# Prisma Client gerado (recriado via `npx prisma generate`, não versionar)
+src/generated/
+
+# Variáveis de ambiente (nunca versionar segredos reais)
+.env
+.env.*
+!.env.example
+
+# Uploads enviados por usuários em ambiente local (não é código-fonte)
+uploads/
+storage/
+
+# Logs
+*.log
+logs/
+
+# Observabilidade — dados persistidos localmente pelos containers, não config
+docker/loki-data/
+docker/grafana-data/
+
+# Testes / cobertura
+coverage/
+test-results/
+
+# Editor / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Docker (dados de volumes, nunca a config em docker/*.yml)
+*.pid

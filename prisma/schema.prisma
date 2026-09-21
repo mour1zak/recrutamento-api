@@ -1,0 +1,268 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  CANDIDATE
+  RECRUITER
+  ADMIN
+}
+
+enum JobStatus {
+  DRAFT // criada, ainda não visível/aberta para candidaturas
+  OPEN // aberta, aceita candidaturas
+  PAUSED // temporariamente fechada para novas candidaturas, pode reabrir
+  FILLED // todas as vagas (vacancies) foram preenchidas
+  CLOSED // encerrada definitivamente sem preencher todas as vagas
+  CANCELED // cancelada pela empresa
+}
+
+enum ApplicationStatus {
+  PENDING
+  UNDER_REVIEW
+  INTERVIEW
+  OFFERED
+  HIRED
+  REJECTED
+  WITHDRAWN
+}
+
+enum InterviewStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELED
+  RESCHEDULED
+  NO_SHOW
+}
+
+enum DocumentType {
+  RESUME
+  COVER_LETTER
+  CERTIFICATE
+  OTHER
+}
+
+// ---------------------------------------------------------------------------
+// User & perfis
+// ---------------------------------------------------------------------------
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+  role      Role     @default(CANDIDATE)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Recrutador pertence a uma empresa. Regra "recruiter só opera vagas da
+  // própria empresa" é reforçada no Service comparando este campo com o
+  // companyId da vaga — o schema só garante a integridade referencial.
+  companyId Int?
+  company   Company? @relation("CompanyRecruiters", fields: [companyId], references: [id], onDelete: SetNull)
+
+  candidateProfile CandidateProfile?
+  documents        Document[]
+  applications     Application[]         @relation("CandidateApplications")
+  statusChanges    ApplicationStatusHistory[] @relation("StatusChangedBy")
+  interviewsGiven  Interview[]           @relation("Interviewer")
+  createdJobs      Job[]                 @relation("JobCreatedBy")
+  refreshTokens    RefreshToken[]
+
+  @@index([role])
+  @@index([companyId])
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  tokenHash String    @unique
+  userId    Int
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model CandidateProfile {
+  id        Int      @id @default(autoincrement())
+  userId    Int      @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  headline  String?
+  summary   String?
+  phone     String?
+
+  // Endereço preenchido/enriquecido via integração externa de CEP (HttpService)
+  cep       String?
+  street    String?
+  city      String?
+  state     String?
+
+  skills    String[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ---------------------------------------------------------------------------
+// Empresa & vagas
+// ---------------------------------------------------------------------------
+
+model Company {
+  id          Int      @id @default(autoincrement())
+  name        String
+  cnpj        String?  @unique
+  description String?
+
+  // Endereço resolvido via integração externa de CEP/localização
+  cep         String
+  street      String?
+  city        String?
+  state       String?
+
+  recruiters  User[]   @relation("CompanyRecruiters")
+  jobs        Job[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Job {
+  id          Int       @id @default(autoincrement())
+  title       String
+  description String
+  companyId   Int
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  createdById Int
+  createdBy   User      @relation("JobCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+
+  status      JobStatus @default(DRAFT)
+  isRemote    Boolean   @default(false)
+  salaryMin   Int?
+  salaryMax   Int?
+
+  // Controle de concorrência: número total de vagas e quantas já foram
+  // preenchidas. A transição de Application -> HIRED precisa checar/atualizar
+  // estes dois campos dentro de uma transação com lock de linha (Fase 3),
+  // para impedir que duas contratações simultâneas estourem "vacancies".
+  vacancies   Int       @default(1)
+  filledCount Int       @default(0)
+
+  applications Application[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  closedAt    DateTime?
+
+  @@index([companyId])
+  @@index([status])
+}
+
+// ---------------------------------------------------------------------------
+// Candidaturas, histórico e entrevistas
+// ---------------------------------------------------------------------------
+
+model Application {
+  id         Int               @id @default(autoincrement())
+
+  jobId      Int
+  job        Job               @relation(fields: [jobId], references: [id], onDelete: Restrict)
+
+  candidateId Int
+  candidate   User             @relation("CandidateApplications", fields: [candidateId], references: [id], onDelete: Restrict)
+
+  status      ApplicationStatus @default(PENDING)
+  coverLetter String?
+
+  resumeDocumentId Int?
+  resumeDocument   Document?   @relation(fields: [resumeDocumentId], references: [id], onDelete: SetNull)
+
+  statusHistory ApplicationStatusHistory[]
+  interviews    Interview[]
+
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  // Regra obrigatória: candidatura duplicada proibida.
+  @@unique([candidateId, jobId])
+  @@index([jobId])
+  @@index([candidateId])
+  @@index([status])
+}
+
+model ApplicationStatusHistory {
+  id            Int                @id @default(autoincrement())
+  applicationId Int
+  application   Application        @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  fromStatus    ApplicationStatus?
+  toStatus      ApplicationStatus
+
+  changedById   Int
+  changedBy     User               @relation("StatusChangedBy", fields: [changedById], references: [id], onDelete: Restrict)
+
+  note          String?
+  createdAt     DateTime           @default(now())
+
+  @@index([applicationId])
+}
+
+model Interview {
+  id              Int             @id @default(autoincrement())
+  applicationId   Int
+  application     Application     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  interviewerId   Int?
+  interviewer     User?           @relation("Interviewer", fields: [interviewerId], references: [id], onDelete: SetNull)
+
+  scheduledAt     DateTime
+  durationMinutes Int?
+  isRemote        Boolean         @default(true)
+  location        String?
+  meetingLink     String?
+
+  status          InterviewStatus @default(SCHEDULED)
+  feedback        String?
+
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([applicationId])
+}
+
+// ---------------------------------------------------------------------------
+// Documentos (upload)
+// ---------------------------------------------------------------------------
+
+model Document {
+  id           Int          @id @default(autoincrement())
+
+  ownerId      Int
+  owner        User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  type         DocumentType @default(RESUME)
+  filename     String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  path         String
+
+  applications Application[]
+
+  createdAt    DateTime     @default(now())
+
+  @@index([ownerId])
+}

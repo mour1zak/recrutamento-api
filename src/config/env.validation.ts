@@ -9,6 +9,15 @@ const PLACEHOLDER_JWT_SECRET = 'troque-por-um-valor-aleatorio-de-32-bytes-em-hex
 const PLACEHOLDER_JWT_REFRESH_SECRET = 'troque-por-outro-valor-aleatorio-de-32-bytes-em-hex';
 const PLACEHOLDER_API_KEY = 'troque-por-um-valor-aleatorio';
 
+// Valores do .env.test — versionado de propósito (segredos dedicados a um
+// banco de teste descartável, ver .gitignore), mas por isso mesmo públicos
+// e permanentes no histórico do Git. Corrige achado Qwen rodada 5 (N4):
+// fora de NODE_ENV=test, esses valores viram tão perigosos quanto o
+// placeholder do .env.example — alguém poderia forjar um JWT válido pra
+// esse ambiente, ou um deploy real acidentalmente subir com NODE_ENV=test.
+const TEST_ENV_JWT_SECRET = '7b0501ef6e14a67fe9f13d4c513ca8f7a72c63b2cacaeda016b053ef5bca048f';
+const TEST_ENV_API_KEY = '19059b32a370a9771d5d636782d882b7325427cd7401d0d7';
+
 // Mesmo formato aceito por src/common/utils/duration.util.ts — valida aqui
 // para falhar no boot (não no primeiro login) se alguém configurar algo
 // como "1w" (achado R6 da rodada 4).
@@ -22,20 +31,31 @@ export const envValidationSchema = Joi.object({
 
   JWT_SECRET: Joi.string()
     .min(32)
-    .invalid(PLACEHOLDER_JWT_SECRET, PLACEHOLDER_JWT_REFRESH_SECRET)
+    // oxlint-disable-next-line unicorn/no-thenable -- `then`/`otherwise` são
+    // opções da API do Joi (schema condicional), não uma Promise/thenable.
+    .when('NODE_ENV', {
+      is: 'test',
+      then: Joi.string().invalid(PLACEHOLDER_JWT_SECRET, PLACEHOLDER_JWT_REFRESH_SECRET),
+      otherwise: Joi.string().invalid(PLACEHOLDER_JWT_SECRET, PLACEHOLDER_JWT_REFRESH_SECRET, TEST_ENV_JWT_SECRET),
+    })
     .required()
     .messages({
-      'any.invalid': 'JWT_SECRET não pode ser o valor de exemplo do .env.example — gere um novo com `openssl rand -hex 32`.',
+      'any.invalid': 'JWT_SECRET não pode ser um valor de exemplo/teste versionado no repositório — gere um novo com `openssl rand -hex 32`.',
     }),
   JWT_EXPIRES_IN: Joi.string().pattern(DURATION_PATTERN).default('15m'),
   JWT_REFRESH_EXPIRES_IN: Joi.string().pattern(DURATION_PATTERN).default('7d'),
 
   API_KEY: Joi.string()
     .min(16)
-    .invalid(PLACEHOLDER_API_KEY)
+    // oxlint-disable-next-line unicorn/no-thenable -- idem acima.
+    .when('NODE_ENV', {
+      is: 'test',
+      then: Joi.string().invalid(PLACEHOLDER_API_KEY),
+      otherwise: Joi.string().invalid(PLACEHOLDER_API_KEY, TEST_ENV_API_KEY),
+    })
     .required()
     .messages({
-      'any.invalid': 'API_KEY não pode ser o valor de exemplo do .env.example — gere um novo com `openssl rand -hex 24`.',
+      'any.invalid': 'API_KEY não pode ser um valor de exemplo/teste versionado no repositório — gere um novo com `openssl rand -hex 24`.',
     }),
 
   EXTERNAL_CEP_API_URL: Joi.string().uri().default('https://viacep.com.br/ws'),
@@ -49,10 +69,13 @@ export const envValidationSchema = Joi.object({
     // identidade de cliente) — se forem iguais, comprometer um compromete
     // os dois.
     if (value.JWT_SECRET === value.API_KEY) {
-      return helpers.error('any.custom', {
-        message: 'JWT_SECRET e API_KEY não podem ter o mesmo valor.',
-      });
+      // `helpers.message(...)` (não `helpers.error('any.custom', {...})`):
+      // achado Qwen rodada 5 (N7) — a mensagem passada via `context` num
+      // `helpers.error` não é renderizada a menos que o schema declare
+      // `.messages({'any.custom': '{{#message}}'})`; `helpers.message()`
+      // usa o texto literal direto, sem esse passo extra.
+      return helpers.message({ custom: 'JWT_SECRET e API_KEY não podem ter o mesmo valor.' });
     }
     return value;
-  }, 'JWT_SECRET distinto de API_KEY')
+  })
   .unknown(true);

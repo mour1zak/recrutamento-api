@@ -4,6 +4,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
+import { PrismaService } from '../src/prisma/prisma.service.js';
+import { PERMISSIONS, SYSTEM_ROLES } from '../src/common/constants/permissions.constants.js';
 
 // Carrega o .env.test explicitamente ANTES de ler process.env abaixo — não
 // depender de outro arquivo de teste já ter disparado o ConfigModule do
@@ -130,6 +132,71 @@ describe('Auth (e2e)', () => {
       // 999999 não existe -> 404 do Service, não 403 do Guard. É exatamente
       // essa distinção que prova que o PermissionsGuard deixou passar.
       expect(res.status).toBe(404);
+    });
+  });
+
+  /**
+   * Cobre o achado crítico Qwen rodada 5 (N1): o último ADMIN conseguia
+   * se autodesativar (ou ser desativado, ficando o sistema sem
+   * administrador), sem nenhuma rota de reversão pela API.
+   */
+  describe('trava de último administrador (N1, rodada 5)', () => {
+    it('ADMIN tenta desativar a própria conta -> 409', async () => {
+      const login = await request(app.getHttpServer())
+        .post('/auth/login')
+        .set('x-api-key', apiKey)
+        .send({ email: 'admin@recrutamento.test', password: seedPassword })
+        .expect(200);
+
+      return request(app.getHttpServer())
+        .patch(`/users/${login.body.user.id}/deactivate`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${login.body.accessToken}`)
+        .expect(409);
+    });
+
+    it('desativar o único ADMIN ativo restante -> 409, mesmo vindo de outro papel com user:manage', async () => {
+      const prisma = app.get(PrismaService);
+
+      // Simula o estado que o Nível B (edição de permissões em runtime,
+      // FEEDBACKS-MELHORIA.md) poderia produzir: um papel diferente de
+      // ADMIN ganhando `user:manage`. Isso prova que a trava é do NÚMERO
+      // de admins ativos, não "só ADMIN nunca desativa outro ADMIN".
+      const [adminRole, candidateRole, userManagePermission] = await Promise.all([
+        prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.ADMIN } }),
+        prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.CANDIDATE } }),
+        prisma.permission.findUniqueOrThrow({ where: { key: PERMISSIONS.USER_MANAGE } }),
+      ]);
+
+      const grant = await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: candidateRole.id, permissionId: userManagePermission.id } },
+        update: {},
+        create: { roleId: candidateRole.id, permissionId: userManagePermission.id },
+      });
+
+      const soleAdmin = await prisma.user.findFirstOrThrow({ where: { roleId: adminRole.id } });
+
+      try {
+        const login = await request(app.getHttpServer())
+          .post('/auth/login')
+          .set('x-api-key', apiKey)
+          .send({ email: 'candidato@recrutamento.test', password: seedPassword })
+          .expect(200);
+
+        // Confirma a premissa do teste: existe exatamente 1 ADMIN ativo.
+        const activeAdmins = await prisma.user.count({ where: { roleId: adminRole.id, isActive: true } });
+        expect(activeAdmins).toBe(1);
+
+        return await request(app.getHttpServer())
+          .patch(`/users/${soleAdmin.id}/deactivate`)
+          .set('x-api-key', apiKey)
+          .set('Authorization', `Bearer ${login.body.accessToken}`)
+          .expect(409);
+      } finally {
+        // Desfaz a simulação — nunca deixar `user:manage` concedido a
+        // CANDIDATE fora deste teste.
+        await prisma.rolePermission.delete({ where: { id: grant.id } });
+      }
     });
   });
 });

@@ -21,6 +21,17 @@ o relato completo. Todos corrigidos e reverificados nesta rodada:
 
 Isso muda o status de dois itens abaixo (marcados com "🔄 rodada 4").
 
+## Adendo rodada 5 — APROVADO COM RESSALVAS
+
+Os 5 críticos + 2 ressalvas da rodada 4 foram reexecutados pelo Qwen sob
+carga maior que a nossa e confirmados fechados. Um crítico **novo**
+apareceu, criado indiretamente pela própria correção do C5 (o endpoint de
+desativação de usuário, que não existia antes): **o último ADMIN
+conseguia se autodesativar, sem rota de reversão**. Corrigido — ver
+`TRIAGEM-REVISOES-RODADA5.md`. Duas ressalvas obrigatórias também
+fechadas: mensagem do 409 nomeando o campo certo, e erro de infraestrutura
+(`P1xxx`) deixando de ser classificado como conflito de dado.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
@@ -128,6 +139,11 @@ Isso muda o status de dois itens abaixo (marcados com "🔄 rodada 4").
       rodadas anteriores), assertando as duas invariantes acima.
 - [ ] Qualquer `$queryRaw` usado no lock seleciona só as colunas
       estritamente necessárias — `omit` global não se aplica a SQL cru.
+- [ ] Pool de conexão do driver `pg` configurado com timeout explícito
+      (achado Qwen rodada 5, N15) — sem isso, o teste de concorrência com N
+      requisições simultâneas esbarra no limite do pool antes de esbarrar
+      no lock, e o sintoma vira um timeout confuso (`P2028`) em vez de
+      contenção esperada.
 - [ ] Índice de expressão (ou `citext`) para `User.email` case-insensitive
       no banco — hoje a normalização (`lowercase`+`trim`) só existe na
       aplicação; um `INSERT` via SQL bruto (que esta fase já prevê) pode
@@ -138,7 +154,12 @@ Isso muda o status de dois itens abaixo (marcados com "🔄 rodada 4").
       "corrigido agora" porque já era alcançável em `POST /auth/register`
       sem nenhuma concorrência real de vaga): `src/common/filters/
       prisma-exception.filter.ts`. Provado com 5 registros simultâneos com
-      o mesmo email: 1×`201`, 4×`409`, zero `500`.
+      o mesmo email: 1×`201`, 4×`409`, zero `500`. **Refinado na rodada 5**
+      (N2/N3): `P2002` agora nomeia o campo real (lido de
+      `meta.driverAdapterError.cause.constraint.index`, não de
+      `meta.target`, que não existe no Prisma 7 com driver adapter);
+      `P1xxx` (infraestrutura) vira `503`, não `409`; `default` vira `500`
+      honesto — `409` fica restrito a conflito de dado real.
 
 ## Gate Nível B (só se/quando o endpoint de ADMIN editar permissões existir)
 

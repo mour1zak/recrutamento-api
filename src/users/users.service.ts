@@ -1,7 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { SYSTEM_ROLES, type PermissionKey } from '../common/constants/permissions.constants.js';
+import { PERMISSIONS, SYSTEM_ROLES, type PermissionKey } from '../common/constants/permissions.constants.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
+
+const KNOWN_PERMISSION_KEYS = new Set<string>(Object.values(PERMISSIONS));
 
 // select nomeado, sem password — mesmo padrão validado na auditoria do
 // DEVCONNECT (FASE-1-MODELAGEM.md §7.2): nunca depender de lembrar de
@@ -29,6 +31,8 @@ function normalizeEmail(email: string): string {
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async findAuthenticatedById(id: number): Promise<AuthenticatedUser | null> {
@@ -85,20 +89,54 @@ export class UsersService {
    * CONDICOES-ENTRADA-FASE2.md) — nunca DELETE físico. Revoga também todos
    * os refresh tokens ativos, para que uma sessão já aberta não continue
    * renovável depois da desativação.
+   *
+   * Corrige achado crítico Qwen rodada 5 (N1): o último ADMIN conseguia
+   * desativar a si mesmo (ou outro admin), zerando os administradores
+   * ativos sem nenhuma rota de reversão — estado irrecuperável pela API.
+   * Duas travas: (1) ninguém desativa a própria conta; (2) não é permitido
+   * ficar com zero ADMIN ativo.
+   *
+   * As duas travas rodam dentro de uma transação `Serializable`, não só um
+   * `if` antes do `update`: um `count()` de admins ativos seguido de um
+   * `update` em passos separados teria a mesma janela de corrida que o C4
+   * (rodada 4) já corrigiu em outro lugar — dois admins se desativando ao
+   * mesmo tempo poderiam ambos ler "sobra mais de um" antes de qualquer um
+   * escrever. `Serializable` faz o Postgres abortar uma das duas transações
+   * concorrentes (vira `P2034`, já mapeado para `409` pelo
+   * `PrismaExceptionFilter`) em vez de deixar as duas passarem.
    */
-  async deactivate(id: number): Promise<void> {
-    const user = await this.prisma.user.findUnique({ where: { id } });
-    if (!user) {
-      throw new NotFoundException('Usuário não encontrado.');
+  async deactivate(targetId: number, currentUserId: number): Promise<void> {
+    if (targetId === currentUserId) {
+      throw new ConflictException('Você não pode desativar a própria conta.');
     }
 
-    await this.prisma.$transaction([
-      this.prisma.user.update({ where: { id }, data: { isActive: false } }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-    ]);
+    await this.prisma.$transaction(
+      async (tx) => {
+        const target = await tx.user.findUnique({
+          where: { id: targetId },
+          include: { role: true },
+        });
+        if (!target) {
+          throw new NotFoundException('Usuário não encontrado.');
+        }
+
+        if (target.role.name === SYSTEM_ROLES.ADMIN && target.isActive) {
+          const activeAdmins = await tx.user.count({
+            where: { isActive: true, role: { name: SYSTEM_ROLES.ADMIN } },
+          });
+          if (activeAdmins <= 1) {
+            throw new ConflictException('Não é possível desativar o último administrador ativo.');
+          }
+        }
+
+        await tx.user.update({ where: { id: targetId }, data: { isActive: false } });
+        await tx.refreshToken.updateMany({
+          where: { userId: targetId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      },
+      { isolationLevel: 'Serializable' },
+    );
   }
 
   private toAuthenticatedUser(user: {
@@ -116,7 +154,21 @@ export class UsersService {
       roleId: user.roleId,
       roleName: user.role.name,
       companyId: user.companyId,
-      permissions: user.role.rolePermissions.map((rp) => rp.permission.key as PermissionKey),
+      // Achado Qwen rodada 5 (N13): antes era um `as PermissionKey` cego —
+      // uma key gravada no banco fora do catálogo (seed divergente, ou um
+      // futuro Nível B editando permissões livremente) entraria em
+      // `user.permissions` sem nenhum aviso. Uma key órfã aqui é inofensiva
+      // por si só (o Guard só confere `includes`), mas é sintoma de algo
+      // errado no catálogo/seed — vale logar, não silenciar.
+      permissions: user.role.rolePermissions
+        .map((rp) => rp.permission.key)
+        .filter((key): key is PermissionKey => {
+          const known = KNOWN_PERMISSION_KEYS.has(key);
+          if (!known) {
+            this.logger.warn(`Permission key "${key}" concedida no banco não existe no catálogo (permissions.constants.ts).`);
+          }
+          return known;
+        }),
     };
   }
 }

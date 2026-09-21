@@ -12,6 +12,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
 import { envValidationSchema } from './config/env.validation.js';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter.js';
+import { UnauthorizedExceptionFilter } from './common/filters/unauthorized-exception.filter.js';
 
 @Module({
   imports: [
@@ -48,6 +49,9 @@ import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter.
     // Corrige achado Qwen rodada 4 (R1): erro do Prisma (unique violado, FK
     // inexistente, conflito de transação) nunca deve virar 500 cru.
     { provide: APP_FILTER, useClass: PrismaExceptionFilter },
+    // Corrige achado Qwen rodada 5 (N14): RFC 9110 exige WWW-Authenticate
+    // em toda resposta 401.
+    { provide: APP_FILTER, useClass: UnauthorizedExceptionFilter },
   ],
 })
 export class AppModule {}

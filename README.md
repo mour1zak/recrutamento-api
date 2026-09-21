@@ -104,6 +104,12 @@ uma falha de documentação — abra uma issue/avise.
 - PostgreSQL 14+ rodando localmente (testado com 18) — pode ser um serviço
   já instalado ou um container, não precisa ser dedicado só a este projeto
 
+**`DATABASE_URL` é obrigatório para qualquer comando do Prisma, inclusive
+`prisma generate`** (achado Qwen rodada 5, N6) — mesmo sem um banco
+alcançável, a variável precisa existir (um valor qualquer, mesmo
+apontando pra um banco que não existe, é suficiente só para gerar o
+client). Em CI, defina um `DATABASE_URL` dummy antes de `npm run build`.
+
 ### 4.2 Banco de dados
 
 Crie um usuário e dois bancos dedicados (dev e teste) — **não** use o
@@ -192,5 +198,16 @@ estado) só têm onde morar quando os módulos correspondentes existirem.
 
 ## 5. Endpoints
 
-_(Tabela método/URL/autenticação/body/respostas será preenchida a partir da
-Fase 2, endpoint por endpoint, nunca em lote no final.)_
+Preenchida endpoint por endpoint conforme são implementados (achado Qwen
+rodada 5, N11 — esta tabela tinha ficado vazia com 5 rotas já reais, o
+oposto da política declarada aqui). Todas exigem `x-api-key` (decisão
+CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
+
+| Método | URL | Autenticação/Permissão | Body | Principais respostas |
+|---|---|---|---|---|
+| `GET` | `/health` | Só API key | — | `200` `{status:"ok",timestamp}` |
+| `POST` | `/auth/register` | Só API key | `{name, email, password}` | `201` (tokens); `400` DTO inválido; `409` email duplicado |
+| `POST` | `/auth/login` | Só API key | `{email, password}` | `200` (tokens); `401` credenciais inválidas |
+| `POST` | `/auth/refresh` | Só API key | `{refreshToken}` | `200` (novo par de tokens); `401` token inválido/expirado/já usado |
+| `POST` | `/auth/logout` | JWT | `{refreshToken}` | `204`; `401` sem JWT/JWT inválido |
+| `PATCH` | `/users/:id/deactivate` | JWT + permission `user:manage` | — | `204`; `403` sem a permissão; `404` usuário inexistente; `409` alvo é a própria conta ou o último ADMIN ativo |

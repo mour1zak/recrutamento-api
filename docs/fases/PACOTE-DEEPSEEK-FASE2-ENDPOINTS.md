@@ -16,10 +16,14 @@ endpoints antes de abrir o Controller").
 ## O que já existe (não precisa redefinir)
 
 ```text
-POST /auth/register  → cria CANDIDATE (sem permission key, só API key)
-POST /auth/login     → sem permission key, só API key
-POST /auth/refresh   → sem permission key, só API key
-POST /auth/logout    → requer JWT, sem permission key específica
+GET   /health                    → sem permission key, só API key (health check de processo)
+POST  /auth/register             → cria CANDIDATE (sem permission key, só API key)
+POST  /auth/login                → sem permission key, só API key
+POST  /auth/refresh              → sem permission key, só API key
+POST  /auth/logout               → requer JWT, sem permission key específica
+PATCH /users/:id/deactivate      → requer JWT + permission key `user:manage`
+                                    (não se autodesativa; não desativa o
+                                    último ADMIN ativo — 409 nos dois casos)
 ```
 
 ## Correção no catálogo de permissões (avise se discordar)

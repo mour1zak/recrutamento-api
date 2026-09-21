@@ -29,8 +29,8 @@ deixamos isso implícito no código._
 | Item | Status |
 |---|---|
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
-| Autenticação JWT + `@CurrentUser()` | ⬜ Não iniciado |
-| Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | ⬜ Não iniciado |
+| Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
+| Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟡 Infraestrutura pronta (RBAC dinâmico, `PermissionsGuard`, 45 grants no seed), ainda sem endpoint de negócio protegido por permission key pra exercitar de ponta a ponta |
 | CRUDs / gestão das entidades | ⬜ Não iniciado |
 | Consultas por relacionamento | ⬜ Não iniciado |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
@@ -38,7 +38,7 @@ deixamos isso implícito no código._
 | Integração externa via `HttpService` (CEP/localização) | ⬜ Não iniciado |
 | Interceptor coerente | ⬜ Não iniciado |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
-| Tratamento de 400/401/403/404/409 | ⬜ Não iniciado |
+| Tratamento de 400/401/403/404/409 | 🟡 400/401/409 demonstrados manualmente no fluxo de auth; 403/404 dependem de um endpoint com dono de recurso, ainda não existe |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
 | Testes obrigatórios (10 cenários do enunciado) | ⬜ Não iniciado |
 

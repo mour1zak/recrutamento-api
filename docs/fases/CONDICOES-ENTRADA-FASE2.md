@@ -8,13 +8,19 @@ sem os de "Passo 1" resolvidos.
 
 ## Passo 1 — antes do primeiro Guard/seed
 
-- [ ] **CE-1 decidido**: quem é o consumidor da API (backend/cliente
-      confiável vs. existe navegador/SPA) — determina se a API key é guard
-      global puro ou guard global com rotas isentas. Ver decisão registrada
-      abaixo assim que tomada.
-- [ ] **CE-2**: catálogo de 28 permission keys como módulo de código
-      compartilhado (seed + decorators de Guard), não só em
-      `PARECER-DEEPSEEK-FASE1.md`.
+- [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
+      rotas isentas (ver seção "Decisão CE-1" abaixo). **Implementado** —
+      `src/common/guards/api-key.guard.ts`, registrado como `APP_GUARD` em
+      `src/app.module.ts`, testado (sem key → 401, key errada → 401, key
+      certa → passa).
+- [x] **CE-2**: catálogo de permissões como módulo de código compartilhado.
+      **Feito** — `src/common/constants/permissions.constants.ts` (fonte
+      única usada por `prisma/seed.ts` e por `@Permissions()`/
+      `PermissionsGuard`). Correção em relação ao parecer do DeepSeek: ADMIN
+      recebe 24 keys, não 28 (28 menos as 4 exclusivas de candidato) — a
+      soma "todas as 28" do parecer original era inconsistente com a
+      própria lista de exceções que ele deu. Confirmado no banco:
+      ADMIN=24, RECRUITER=13, CANDIDATE=8 (total 45 `RolePermission`).
 - [x] `package.json`, `tsconfig.json`, `prisma.config.ts`, `.env.example`
       versionados. **Feito** — scaffolding Nest 12 (ESM, Vitest) +
       `prisma.config.ts` + migration inicial aplicada em Postgres 18 local
@@ -27,24 +33,51 @@ sem os de "Passo 1" resolvidos.
 - [x] `omit` global no `PrismaService`/`PrismaClient` cobrindo `password`,
       `tokenHash`, `path` (mitigação de C3). **Feito** —
       `src/prisma/prisma.service.ts`.
-- [ ] Regra de negócio escrita e implementada: **nenhum endpoint de delete
-      físico de `User`** — só `isActive = false`. Qualquer `P2003`
-      remanescente mapeado para `409`, nunca `500`.
-- [ ] Desativação de usuário (`isActive = false`) **revoga todos os
-      `RefreshToken` ativos**; fluxo de refresh revalida `isActive`. Teste:
-      desativar → tentar renovar → esperar `401`.
+- [x] Regra de negócio escrita e implementada: **nenhum endpoint de delete
+      físico de `User`** — só `isActive = false`. **Feito** —
+      `UsersService.deactivate()` (`src/users/users.service.ts`); nenhum
+      controller expõe delete físico de usuário (o módulo de gestão de
+      usuários com o endpoint ainda não existe, mas o método de serviço já
+      segue a regra desde já).
+- [x] Desativação de usuário (`isActive = false`) **revoga todos os
+      `RefreshToken` ativos**; fluxo de refresh revalida `isActive`. **Feito**
+      — `UsersService.deactivate()` roda os dois updates numa
+      `$transaction`; `AuthService.refresh()`/`JwtStrategy.validate()`
+      sempre passam por `findAuthenticatedById()`, que retorna `null` (→
+      `401`) se `isActive = false`. Teste manual completo: login → logout
+      revoga o refresh usado → reuso do mesmo token → `401` (confirmado via
+      curl). Teste específico de "desativar enquanto sessão está ativa"
+      ainda não automatizado — método existe e a leitura de `isActive` já
+      é respeitada, mas falta um teste demonstrando o caminho via
+      desativação (não só via logout).
 - [ ] `resumeDocument.ownerId === candidateId` validado no Service antes de
       aceitar uma candidatura (não é enforçável só por FK).
 - [ ] Regra de negócio escrita: `RESCHEDULED` sempre tem `rescheduledTo`
       preenchido; `CANCELED` nunca tem.
 - [ ] Checagem no Service: não é possível criar `Interview` para
       `Application` com `status = WITHDRAWN`.
-- [ ] DTOs com `@MaxLength` em campos de texto, especialmente `password`
-      (bcrypt trunca em 72 bytes silenciosamente) e `name`.
-- [ ] Email normalizado (lowercase + trim) antes de checar unicidade/login.
+- [x] DTOs com `@MaxLength` em campos de texto, especialmente `password`
+      (bcrypt trunca em 72 bytes silenciosamente) e `name`. **Feito, com
+      correção**: a primeira versão usava `@MaxLength(72)` na senha —
+      contando *caracteres*, não *bytes*, o que não resolvia o problema
+      para senhas com acentuação (comum em português: cada caractere
+      acentuado usa 2 bytes em UTF-8, então 72 caracteres acentuados podem
+      passar de 72 bytes). Corrigido eliminando o limite pela raiz:
+      `src/common/utils/password.util.ts` pré-hasheia a senha com SHA-256
+      antes do bcrypt, removendo o truncamento por completo — o `@MaxLength`
+      no DTO virou só um teto de sanidade (256), sem relação com o bcrypt.
+      Provado com senha de 80+ caracteres acentuados: login com a senha
+      completa → `200`; login só com o prefixo (~72 bytes) → `401`.
+- [x] Email normalizado (lowercase + trim) antes de checar unicidade/login.
+      **Feito** — `normalizeEmail()` em `src/users/users.service.ts`,
+      usado tanto no cadastro quanto no login.
 - [ ] Tabela de casos de teste para a política de precedência
       401→401→403→404→409 (API key, JWT, permissão, dono do recurso, regra
       de negócio) — decidir também se `401` inclui `WWW-Authenticate`.
+      **Parcial**: os casos de API key/JWT/400/409 já foram verificados
+      manualmente (ver relatório desta etapa); falta formalizar como
+      suíte de testes automatizados e decidir o `WWW-Authenticate`
+      (ainda não adicionado).
 
 ## Gate Fase 3 (concorrência)
 

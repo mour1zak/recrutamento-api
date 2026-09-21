@@ -5,10 +5,12 @@ export default defineConfig({
   schema: 'prisma/schema.prisma',
   migrations: {
     path: 'prisma/migrations',
-    // seed: configurado quando prisma/seed.ts existir (Fase 2/plano do
-    // DeepSeek em PARECER-DEEPSEEK-FASE1.md §4) — Prisma 7 não tem mais
-    // --skip-seed, então deixamos comentado até o script existir de fato.
-    // seed: 'node --experimental-strip-types prisma/seed.ts',
+    // tsx (não `node --experimental-strip-types`): o gerador do Prisma
+    // emite imports internos com extensão .js apontando pra arquivos .ts
+    // (resolução nodenext, correta para o build do Nest via tsc). O Node
+    // puro não remapeia .js -> .ts sozinho; o tsx faz essa resolução do
+    // jeito que o TypeScript espera.
+    seed: 'tsx prisma/seed.ts',
   },
   datasource: {
     url: env('DATABASE_URL'),

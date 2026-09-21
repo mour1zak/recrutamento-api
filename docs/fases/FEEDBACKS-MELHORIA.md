@@ -105,6 +105,14 @@ obrigatório do Nível B antes da Fase 5, já que auditoria de mudança de
 permissão foi uma lacuna explicitamente identificada na auditoria do
 DEVCONNECT (ver `FASE-1-MODELAGEM.md` §7.2).
 
+**Atualização (Qwen rodada 3, R-C7.1):** com `Permission → RolePermission`
+agora em `Restrict` (correção da rodada 2), surgiu um efeito colateral: uma
+`key` de permissão concedida por engano (ex.: `jobs:create` em vez de
+`job:create`) fica **permanentemente impossível de remover do catálogo**,
+porque `Restrict` bloqueia a exclusão enquanto houver qualquer concessão. A
+revogação não-destrutiva (este item) resolveria isso também — vira parte do
+mesmo pacote de decisão para o Nível B, não um item separado.
+
 ---
 
 ## 5. `CHECK` constraints no banco como rede de segurança adicional
@@ -142,6 +150,87 @@ emissão/rotação de chave.
 separada) — para os 5 dias, tende a ficar como está (valor único via `.env`
 por ambiente), com a limitação documentada explicitamente no README, e essa
 tabela registrada aqui como o caminho de evolução correto.
+
+---
+
+## 7. Estruturar o motivo de `REJECTED` (`Application`)
+
+**O quê:** `ApplicationStatus.REJECTED` hoje serve pra três causas
+diferentes (candidato não teve mérito, candidato recusou uma oferta, vaga
+foi cancelada com candidaturas ativas). Melhoria: campo categórico de
+motivo (ex.: `rejectionReason` em `ApplicationStatusHistory`, ou dividir em
+mais valores de enum).
+
+**Por quê:** sem isso, calcular métricas como "taxa de aceite de oferta" ou
+"motivo de cancelamento em massa" exige heurística sobre texto livre do
+campo `note` — achado da auditoria Qwen rodada 3.
+
+**Custo estimado:** baixo (um campo a mais) a médio (dividir o enum, o que
+teria efeito cascata em todo lugar que já trata `REJECTED`).
+
+**Status:** 🟡 Pendente de decisão. `ApplicationStatusHistory.note` já
+existe e pode registrar o motivo em texto livre — suficiente para o escopo
+da avaliação, a menos que alguma métrica de funil vire requisito explícito.
+
+---
+
+## 8. `Application.coverLetter` (texto) vs `Document` tipo `COVER_LETTER` (arquivo)
+
+**O quê:** hoje existem dois jeitos de representar "carta de apresentação"
+— um campo de texto na candidatura e um tipo de documento (arquivo). Decidir
+se os dois convivem (o candidato escolhe) ou se um deles é removido.
+
+**Por quê:** duas fontes de verdade pra mesma informação de negócio, sem
+regra de qual prevalece se ambos existirem — achado da auditoria Qwen
+rodada 3.
+
+**Custo estimado:** baixo — é decisão de modelagem, não estrutural (não
+exige mudar o schema, só a regra de uso).
+
+**Status:** 🟡 Pendente de decisão para a Fase 2.
+
+---
+
+## 9. Nomenclatura uniforme via `@map`/`@@map` (snake_case em tudo)
+
+**O quê:** hoje só `Role`/`Permission`/`RolePermission` têm `@@map` (viraram
+`app_roles` etc. pra evitar colisão com palavras reservadas do Postgres);
+todo o resto continua com nome idêntico ao Prisma (`"User"`, `"Job"`...,
+exigindo aspas em SQL cru). Melhoria: converter tudo pra snake_case via
+`@map`/`@@map`, uniformizando a convenção.
+
+**Por quê:** consistência + elimina a necessidade de aspas em qualquer SQL
+bruto futuro (a Fase 3 já vai escrever `$queryRaw` para o `FOR UPDATE`) —
+achado da auditoria Qwen rodada 3.
+
+**Custo estimado:** baixo-médio — mecânico, mas toca todo o schema (risco
+de esquecer um campo no meio do caminho).
+
+**Status:** 🟡 Pendente de decisão — puramente estético/de convenção, não
+corrige nenhum bug (diferente do `@@map` do RBAC, que corrigia colisão
+real).
+
+---
+
+## 10. Frontend de apresentação (e impacto na arquitetura de API key)
+
+**O quê:** um frontend simples (fetch puro ou Angular) só para apresentar o
+projeto de forma mais visual — não pedido pelo enunciado, que é só backend.
+
+**Por quê:** o usuário sinalizou interesse em ter isso como melhoria futura
+para apresentação, não como parte da entrega técnica avaliada.
+
+**Custo estimado:** médio-alto (é um projeto à parte), e tem uma implicação
+arquitetural direta: a decisão de CE-1 (`CONDICOES-ENTRADA-FASE2.md`) — API
+key global porque "não existe cliente navegador" — deixa de valer no
+momento em que esse frontend existir e chamar a API diretamente do
+navegador (a chave ficaria exposta no bundle JS). Se este item avançar, a
+arquitetura de API key precisa ser revisitada antes: ou o frontend passa
+por um backend-for-frontend (BFF) que guarda a chave no servidor, ou a API
+key deixa de ser global.
+
+**Status:** 🟡 Ideia registrada, sem decisão de fazer ou não. Não compete
+por tempo com o obrigatório dos 5 dias.
 
 ---
 

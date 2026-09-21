@@ -94,9 +94,14 @@ model Role {
   id          Int              @id @default(autoincrement())
   name        String           @unique // ex.: "CANDIDATE", "RECRUITER", "ADMIN"
   description String?
-  // Protege os 3 papéis do enunciado contra rename/exclusão acidental pelo
-  // endpoint de ADMIN (Nível B). Verificado no Service, não é enforced pelo
-  // banco sozinho — achado real da auditoria Qwen rodada 2 (item 8).
+  // CORREÇÃO (achado Qwen rodada 3, §3 — o comentário anterior prometia uma
+  // proteção que não existe): este campo só MARCA os 3 papéis criados pelo
+  // seed. Ele NÃO impede rename, mudança de isSystem, nem esvaziar/apagar o
+  // papel — provado com UPDATE/INSERT aceitos direto no Postgres. A
+  // proteção de verdade (impedir rename/exclusão/auto-esvaziamento dos
+  // papéis de sistema) é responsabilidade do Service e só é exigida quando
+  // o Nível B existir (ver FEEDBACKS-MELHORIA.md #3 e
+  // TRIAGEM-REVISOES-RODADA3.md, R-isSystem).
   isSystem    Boolean          @default(false)
 
   users           User[]
@@ -190,9 +195,19 @@ model Company {
   name        String
   cnpj        String?  @unique
   description String?
+  // Corrige achado Qwen rodada 3 (C5): remoção de empresa era um DELETE
+  // físico que apagava, junto, a evidência de quem foi recrutador dela —
+  // sem tabela de auditoria pra isso. Espelha o mesmo mecanismo que já
+  // existe em User (isActive): "remover" uma empresa é desativar, não
+  // apagar. onDelete: Restrict nas FKs de Job/User para Company continua
+  // sendo a segunda camada (nem desativada uma empresa com vaga some).
+  isActive    Boolean  @default(true)
 
-  // Endereço resolvido via integração externa de CEP/localização
-  cep         String
+  // Endereço resolvido via integração externa de CEP/localização. Opcional
+  // (corrige item 13 da rodada 3): o plano de cenários de falha externa do
+  // DeepSeek (§5) cria a empresa mesmo com a API de CEP fora do ar, com
+  // endereço null — um `cep` obrigatório impedia isso de fechar em 201.
+  cep         String?
   street      String?
   city        String?
   state       String?
@@ -312,8 +327,13 @@ model Interview {
   // apontando pra qual entrevista ela substitui — decisão do DeepSeek
   // (Fase 1, planejamento de negócio): preserva o registro original como
   // histórico em vez de sobrescrevê-lo.
+  // Restrict, não SetNull (corrige achado Qwen rodada 3, item 17): com
+  // SetNull, apagar uma entrevista NO MEIO da cadeia de reagendamentos
+  // quebrava o elo em silêncio (a próxima entrevista perdia a referência
+  // pra anterior, sem erro nenhum). Restrict obriga tratar isso
+  // explicitamente antes de apagar.
   previousInterviewId Int?      @unique
-  previousInterview   Interview? @relation("InterviewReschedule", fields: [previousInterviewId], references: [id], onDelete: SetNull)
+  previousInterview   Interview? @relation("InterviewReschedule", fields: [previousInterviewId], references: [id], onDelete: Restrict)
   rescheduledTo       Interview? @relation("InterviewReschedule")
 
   createdAt       DateTime        @default(now())

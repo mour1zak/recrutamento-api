@@ -182,10 +182,16 @@ dentro do que já é observado/pedido.
    sem expiração e sem revogação individual é um *shared secret*, não uma
    verificação contínua por identidade. Mantemos a camada (é o que o
    avaliador pediu), mas documentamos a limitação real: (a) ela não
-   distingue qual cliente está chamando, só que "conhece o segredo"; (b) num
-   cliente público (SPA/mobile) o valor seria extraível — aqui assumimos que
-   o consumidor é sempre nosso próprio backend/cliente confiável, não um
-   app de terceiros; (c) precisa comparação em tempo constante e nunca
+   distingue qual cliente está chamando, só que "conhece o segredo"; (b)
+   **decisão resolvida (CE-1, `CONDICOES-ENTRADA-FASE2.md`):** o consumidor
+   desta API é sempre um cliente confiável — Postman, Swagger UI, curl,
+   Thunder Client, o próprio avaliador — **não existe frontend/SPA no
+   escopo desta avaliação**. Por isso a API key pode ser exigida
+   globalmente, sem lista de rotas isentas, inclusive em `/auth/login` e na
+   listagem pública de vagas. Se um frontend for adicionado no futuro como
+   melhoria (`FEEDBACKS-MELHORIA.md` #10), esta decisão precisa ser
+   revisitada antes — não é compatível com um cliente rodando no navegador;
+   (c) precisa comparação em tempo constante e nunca
    aparecer em log (redigir o header em qualquer logger). O modelo com
    entidade própria (`ApiKey` com hash, expiração, revogação por cliente) é
    o caminho correto para produção real — registrado como melhoria em

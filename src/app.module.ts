@@ -11,8 +11,7 @@ import { ApiKeyGuard } from './common/guards/api-key.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
 import { envValidationSchema } from './config/env.validation.js';
-import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter.js';
-import { UnauthorizedExceptionFilter } from './common/filters/unauthorized-exception.filter.js';
+import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
 
 @Module({
   imports: [
@@ -46,12 +45,12 @@ import { UnauthorizedExceptionFilter } from './common/filters/unauthorized-excep
     { provide: APP_GUARD, useClass: ApiKeyGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
-    // Corrige achado Qwen rodada 4 (R1): erro do Prisma (unique violado, FK
-    // inexistente, conflito de transação) nunca deve virar 500 cru.
-    { provide: APP_FILTER, useClass: PrismaExceptionFilter },
-    // Corrige achado Qwen rodada 5 (N14): RFC 9110 exige WWW-Authenticate
-    // em toda resposta 401.
-    { provide: APP_FILTER, useClass: UnauthorizedExceptionFilter },
+    // Filtro único (rodada 6, achado N1-d/ressalva 7): unifica o que antes
+    // eram dois APP_FILTER separados, para eliminar qualquer ambiguidade
+    // sobre qual filtro o Nest escolhe primeiro entre múltiplos globais.
+    // Trata Prisma, conflito de transação (Serializable) e 401 — delega o
+    // resto pro comportamento padrão do Nest via `super.catch()`.
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
   ],
 })
 export class AppModule {}

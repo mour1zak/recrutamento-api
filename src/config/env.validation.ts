@@ -1,5 +1,12 @@
 import Joi from 'joi';
 
+// O `.when('NODE_ENV', { then, otherwise })` abaixo faz o `oxlint` acusar
+// falso-positivo `unicorn/no-thenable` (confunde as chaves `then`/
+// `otherwise` da API do Joi com uma Promise). Comentário de disable inline
+// não funcionou em nenhuma sintaxe testada (achado Qwen rodada 5, ressalva
+// 8) — a regra está desligada só para este arquivo em `.oxlintrc.json`
+// (`overrides`), que é a forma que o `oxlint` realmente respeita.
+
 // Valores literais do `.env.example` — se alguém fizer `cp .env.example .env`
 // e esquecer de trocar, o processo deve recusar subir, nunca aceitar.
 // Achado crítico da auditoria Qwen rodada 4 (C1): sem isso, qualquer pessoa
@@ -31,8 +38,6 @@ export const envValidationSchema = Joi.object({
 
   JWT_SECRET: Joi.string()
     .min(32)
-    // oxlint-disable-next-line unicorn/no-thenable -- `then`/`otherwise` são
-    // opções da API do Joi (schema condicional), não uma Promise/thenable.
     .when('NODE_ENV', {
       is: 'test',
       then: Joi.string().invalid(PLACEHOLDER_JWT_SECRET, PLACEHOLDER_JWT_REFRESH_SECRET),
@@ -47,7 +52,6 @@ export const envValidationSchema = Joi.object({
 
   API_KEY: Joi.string()
     .min(16)
-    // oxlint-disable-next-line unicorn/no-thenable -- idem acima.
     .when('NODE_ENV', {
       is: 'test',
       then: Joi.string().invalid(PLACEHOLDER_API_KEY),

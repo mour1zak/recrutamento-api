@@ -32,6 +32,45 @@ conseguia se autodesativar, sem rota de reversão**. Corrigido — ver
 fechadas: mensagem do 409 nomeando o campo certo, e erro de infraestrutura
 (`P1xxx`) deixando de ser classificado como conflito de dado.
 
+## Adendo rodada 6 — APROVADO COM RESSALVAS (fecha a Fase 2)
+
+A trava de último administrador (N1, rodada 5) foi reexecutada sob carga
+adversarial ainda maior e **se sustentou** — o problema não era a regra de
+negócio, era o formato do erro que ela produzia sob a colisão real: o
+conflito de transação `Serializable`, no Prisma 7 com driver adapter,
+chega como um `DriverAdapterError` não exportado
+(`cause.kind === 'TransactionWriteConflict'`), nunca como
+`PrismaClientKnownRequestError` com `code: 'P2034'` — o filtro antigo
+nunca reconhecia esse formato, e o conflito caía como `500` cru em 67%
+das corridas medidas. Ver `PARECER-QWEN-FASE2-AUTH-RODADA6.md` e
+`TRIAGEM-REVISOES-RODADA6.md` para o relato completo. Corrigido:
+
+- **`500` em conflito de concorrência real (N1-a)** — os dois filtros de
+  exceção antigos (`PrismaExceptionFilter`, `UnauthorizedExceptionFilter`)
+  foram substituídos por um único `GlobalExceptionFilter`
+  (`src/common/filters/global-exception.filter.ts`), que reconhece o
+  `TransactionWriteConflict` por duck-typing **antes** de qualquer outra
+  checagem e devolve `409`. Provado com um teste e2e dedicado: 8 admins
+  temporários, 4 pares de desativação mútua simultânea, `14/14` testes
+  verdes em 3 execuções consecutivas, zero `500`.
+- **`prisma generate` falhando sem `DATABASE_URL` (N5-a)** — bloqueava
+  clone novo/CI antes mesmo do primeiro build. `prisma.config.ts` agora
+  tolera a variável ausente (`generate` não conecta em banco nenhum).
+- **Sem rota de reversão de `deactivate()` (N1-c)** — `PATCH
+  /users/:id/reactivate` criado.
+- Ressalvas de custo baixo também fechadas nesta rodada: comentário
+  impreciso do mecanismo de trava (N1-d), formato inconsistente do `401`
+  entre rotas (#7, absorvido pelo filtro unificado), falso-positivo de
+  lint não suprimido por comentário inline (#8, resolvido via
+  `.oxlintrc.json`), log duplicado por request de key de permissão órfã
+  (#10), mensagem genérica do `P2025` (#11, resolvido no mesmo filtro
+  unificado). Suíte e2e agora reentrante via `npm run db:reset:test`
+  (#9).
+
+Este adendo fecha a Fase 2 do ponto de vista da auditoria adversarial —
+os itens "Gate Fase 3" abaixo continuam sendo os requisitos de entrada
+para a próxima fase, não itens desta.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
@@ -152,14 +191,19 @@ fechadas: mensagem do 409 nomeando o campo certo, e erro de infraestrutura
       explicitamente para `409`/`400`/`404` no filtro global — nunca `500`.
       **Adiantado da rodada 4** (achado R1, "corrigir antes da Fase 5" virou
       "corrigido agora" porque já era alcançável em `POST /auth/register`
-      sem nenhuma concorrência real de vaga): `src/common/filters/
-      prisma-exception.filter.ts`. Provado com 5 registros simultâneos com
-      o mesmo email: 1×`201`, 4×`409`, zero `500`. **Refinado na rodada 5**
-      (N2/N3): `P2002` agora nomeia o campo real (lido de
-      `meta.driverAdapterError.cause.constraint.index`, não de
+      sem nenhuma concorrência real de vaga). Provado com 5 registros
+      simultâneos com o mesmo email: 1×`201`, 4×`409`, zero `500`.
+      **Refinado na rodada 5** (N2/N3): `P2002` agora nomeia o campo real
+      (lido de `meta.driverAdapterError.cause.constraint.index`, não de
       `meta.target`, que não existe no Prisma 7 com driver adapter);
       `P1xxx` (infraestrutura) vira `503`, não `409`; `default` vira `500`
-      honesto — `409` fica restrito a conflito de dado real.
+      honesto — `409` fica restrito a conflito de dado real. **Consolidado
+      na rodada 6** (N1-a): os dois filtros separados
+      (`PrismaExceptionFilter`, `UnauthorizedExceptionFilter`) viraram um
+      único `src/common/filters/global-exception.filter.ts`, que também
+      reconhece o conflito de transação `Serializable` do driver adapter
+      (`TransactionWriteConflict`, formato que `P2034` nunca captura na
+      prática) e devolve `409` em vez de `500`.
 
 ## Gate Nível B (só se/quando o endpoint de ADMIN editar permissões existir)
 

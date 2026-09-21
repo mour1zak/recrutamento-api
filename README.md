@@ -174,6 +174,25 @@ segredos dedicados só de teste, funciona em clone novo sem configuração
 manual):
 
 ```bash
+npm run db:reset:test
+```
+
+Isso derruba e recria só o `recrutamento_test` (nunca toca no
+`recrutamento_dev`) e roda o seed em seguida — use sempre que o banco de
+teste ficar num estado inconsistente entre execuções (achado Qwen rodada
+6, ressalva 9: sem esse comando, um teste interrompido no meio podia
+deixar dados residuais que quebravam a próxima rodada). Internamente é
+`prisma migrate reset --force` + `prisma db seed`, ambos carregando
+`.env.test` via o CLI do pacote `dotenv` já instalado — **medido por
+execução:** `migrate reset` sozinho, nesta versão do Prisma, não dispara
+o seed automaticamente (ao contrário do que a documentação de versões
+anteriores sugere), por isso os dois comandos são explícitos e
+encadeados.
+
+Alternativa manual, comando por comando (o que o script acima faz por
+baixo):
+
+```bash
 DATABASE_URL="<a mesma URL do seu .env.test>" npx prisma migrate deploy
 NODE_ENV=test DATABASE_URL="<idem>" npx tsx prisma/seed.ts
 ```
@@ -210,4 +229,5 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `POST` | `/auth/login` | Só API key | `{email, password}` | `200` (tokens); `401` credenciais inválidas |
 | `POST` | `/auth/refresh` | Só API key | `{refreshToken}` | `200` (novo par de tokens); `401` token inválido/expirado/já usado |
 | `POST` | `/auth/logout` | JWT | `{refreshToken}` | `204`; `401` sem JWT/JWT inválido |
-| `PATCH` | `/users/:id/deactivate` | JWT + permission `user:manage` | — | `204`; `403` sem a permissão; `404` usuário inexistente; `409` alvo é a própria conta ou o último ADMIN ativo |
+| `PATCH` | `/users/:id/deactivate` | JWT + permission `user:manage` | — | `204`; `403` sem a permissão; `404` usuário inexistente; `409` alvo é a própria conta, o último ADMIN ativo, ou conflito de concorrência (tente novamente) |
+| `PATCH` | `/users/:id/reactivate` | JWT + permission `user:manage` | — | `204` (idempotente); `403` sem a permissão; `404` usuário inexistente |

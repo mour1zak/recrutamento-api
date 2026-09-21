@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { defineConfig, env } from 'prisma/config';
+import { defineConfig } from 'prisma/config';
 
 export default defineConfig({
   schema: 'prisma/schema.prisma',
@@ -13,6 +13,13 @@ export default defineConfig({
     seed: 'tsx prisma/seed.ts',
   },
   datasource: {
-    url: env('DATABASE_URL'),
+    // `process.env` direto com fallback (não o helper `env()`, que é
+    // estrito e lança se a variável não existir): corrige achado Qwen
+    // rodada 6 (N5-a). `prisma generate` não toca o banco — só lê o
+    // schema — e não deveria exigir `DATABASE_URL` de verdade. Só
+    // comandos que realmente conectam (`migrate`, `db push`...) precisam
+    // de um valor real, e falham nesse momento com um erro de conexão
+    // claro, não com um erro de config confuso antes mesmo de tentar.
+    url: process.env.DATABASE_URL ?? 'postgresql://placeholder:placeholder@localhost:5432/placeholder',
   },
 });

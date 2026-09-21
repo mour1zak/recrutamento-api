@@ -4,6 +4,10 @@ import { PERMISSIONS, SYSTEM_ROLES, type PermissionKey } from '../common/constan
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
 const KNOWN_PERMISSION_KEYS = new Set<string>(Object.values(PERMISSIONS));
+// Achado Qwen rodada 6 (ressalva 10): sem isso, uma key órfã no banco loga
+// um aviso a CADA request autenticado (toAuthenticatedUser roda em todo
+// findAuthenticatedById) — um aviso por processo é suficiente.
+const WARNED_ORPHAN_KEYS = new Set<string>();
 
 // select nomeado, sem password — mesmo padrão validado na auditoria do
 // DEVCONNECT (FASE-1-MODELAGEM.md §7.2): nunca depender de lembrar de
@@ -96,14 +100,28 @@ export class UsersService {
    * Duas travas: (1) ninguém desativa a própria conta; (2) não é permitido
    * ficar com zero ADMIN ativo.
    *
-   * As duas travas rodam dentro de uma transação `Serializable`, não só um
-   * `if` antes do `update`: um `count()` de admins ativos seguido de um
-   * `update` em passos separados teria a mesma janela de corrida que o C4
-   * (rodada 4) já corrigiu em outro lugar — dois admins se desativando ao
-   * mesmo tempo poderiam ambos ler "sobra mais de um" antes de qualquer um
-   * escrever. `Serializable` faz o Postgres abortar uma das duas transações
-   * concorrentes (vira `P2034`, já mapeado para `409` pelo
-   * `PrismaExceptionFilter`) em vez de deixar as duas passarem.
+   * CORREÇÃO DE DESCRIÇÃO (achado Qwen rodada 6, N1-d): a versão anterior
+   * deste comentário afirmava que o conflito de duas transações
+   * concorrentes viraria `P2034`, mapeado para `409` pelo filtro. **Isso
+   * era falso.** Medido por execução: com driver adapter (obrigatório no
+   * Prisma 7), o conflito de serialização chega como um `DriverAdapterError`
+   * (`cause.kind === 'TransactionWriteConflict'`), não como
+   * `PrismaClientKnownRequestError` com `code: 'P2034'` — o filtro antigo
+   * nunca via esse erro, e ele caía como `500` cru em 67% das corridas
+   * medidas. Corrigido no `GlobalExceptionFilter`
+   * (`src/common/filters/global-exception.filter.ts`), que reconhece esse
+   * formato por duck-typing e devolve `409`.
+   *
+   * DECISÃO DE DESENHO (N1-b): mantivemos `Serializable` em vez de trocar
+   * para o padrão de `UPDATE` condicional + `count` usado no `refresh()`
+   * (C4, rodada 4) — que teria o mesmo efeito sem abortar transação nenhuma.
+   * `Serializable` foi mantido porque, com o `GlobalExceptionFilter`
+   * corrigido, o custo do abort (a transação perdedora relança a
+   * exceção, que agora vira `409` corretamente) é aceitável para uma
+   * operação de baixa frequência como desativar usuário — e a checagem
+   * ("ninguém pode ficar sem admin") depende de um agregado (`count`)
+   * sobre múltiplas linhas, não de uma única linha como o `filledCount`,
+   * o que tornaria o padrão condicional mais complexo de expressar aqui.
    */
   async deactivate(targetId: number, currentUserId: number): Promise<void> {
     if (targetId === currentUserId) {
@@ -139,6 +157,22 @@ export class UsersService {
     );
   }
 
+  /**
+   * Operação inversa de `deactivate()` — achado Qwen rodada 6 (N1-c):
+   * antes desta rota, desativar um usuário era irreversível pela API. Sem
+   * trava especial: reativar não corre risco de "zerar admins" (é o
+   * caminho oposto), e não há problema em reativar alguém que já está
+   * ativo (idempotente, mesmo padrão de `deactivate`, já validado por
+   * auditoria).
+   */
+  async reactivate(targetId: number): Promise<void> {
+    const target = await this.prisma.user.findUnique({ where: { id: targetId } });
+    if (!target) {
+      throw new NotFoundException('Usuário não encontrado.');
+    }
+    await this.prisma.user.update({ where: { id: targetId }, data: { isActive: true } });
+  }
+
   private toAuthenticatedUser(user: {
     id: number;
     email: string;
@@ -164,7 +198,8 @@ export class UsersService {
         .map((rp) => rp.permission.key)
         .filter((key): key is PermissionKey => {
           const known = KNOWN_PERMISSION_KEYS.has(key);
-          if (!known) {
+          if (!known && !WARNED_ORPHAN_KEYS.has(key)) {
+            WARNED_ORPHAN_KEYS.add(key);
             this.logger.warn(`Permission key "${key}" concedida no banco não existe no catálogo (permissions.constants.ts).`);
           }
           return known;

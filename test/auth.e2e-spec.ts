@@ -198,5 +198,90 @@ describe('Auth (e2e)', () => {
         await prisma.rolePermission.delete({ where: { id: grant.id } });
       }
     });
+
+    /**
+     * Achado crítico Qwen rodada 6 (N1-a): a trava de "último admin" usa
+     * uma transação `Serializable`, e duas transações concorrentes que
+     * conflitam nela produziam um `500` cru em 67% das corridas medidas
+     * (o conflito de serialização do driver adapter não tinha o formato
+     * que o filtro de exceções antigo reconhecia). Este teste dispara
+     * várias desativações mútuas simultâneas — o cenário que gera
+     * contenção real no agregado "quantos admins estão ativos" — e
+     * garante que toda resposta é `204` ou `409`, nunca `500`.
+     */
+    it('desativações mútuas simultâneas entre vários admins nunca respondem 500', async () => {
+      const prisma = app.get(PrismaService);
+      const adminRole = await prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.ADMIN } });
+      const passwordHash = await prisma.user
+        .findFirstOrThrow({ where: { roleId: adminRole.id }, select: { password: true } })
+        .then((u) => u.password);
+
+      const PAIR_COUNT = 4; // 8 admins temporários, 4 pares se desativando ao mesmo tempo
+      const tempAdmins = await Promise.all(
+        Array.from({ length: PAIR_COUNT * 2 }, (_, i) =>
+          prisma.user.create({
+            data: {
+              name: `Admin Concorrência ${i} (teste)`,
+              email: `admin-concorrencia-${Date.now()}-${i}@example.com`,
+              password: passwordHash,
+              roleId: adminRole.id,
+            },
+          }),
+        ),
+      );
+
+      try {
+        const logins = await Promise.all(
+          tempAdmins.map((u) =>
+            request(app.getHttpServer())
+              .post('/auth/login')
+              .set('x-api-key', apiKey)
+              .send({ email: u.email, password: seedPassword })
+              .expect(200),
+          ),
+        );
+
+        // Cada admin[2i] desativa admin[2i+1] e vice-versa, tudo ao mesmo
+        // tempo — maximiza a chance de duas transações Serializable
+        // conflitarem de verdade na contagem agregada de admins ativos.
+        const requests: Promise<{ status: number; body: unknown }>[] = [];
+        for (let i = 0; i < PAIR_COUNT; i++) {
+          const a = 2 * i;
+          const b = 2 * i + 1;
+          requests.push(
+            request(app.getHttpServer())
+              .patch(`/users/${tempAdmins[b].id}/deactivate`)
+              .set('x-api-key', apiKey)
+              .set('Authorization', `Bearer ${logins[a].body.accessToken}`)
+              .then((res) => ({ status: res.status, body: res.body })),
+          );
+          requests.push(
+            request(app.getHttpServer())
+              .patch(`/users/${tempAdmins[a].id}/deactivate`)
+              .set('x-api-key', apiKey)
+              .set('Authorization', `Bearer ${logins[b].body.accessToken}`)
+              .then((res) => ({ status: res.status, body: res.body })),
+          );
+        }
+
+        const results = await Promise.all(requests);
+
+        const statuses = results.map((r) => r.status);
+        const has500 = statuses.some((s) => s >= 500);
+        if (has500) {
+          // eslint-disable-next-line no-console -- diagnóstico só quando falha
+          console.error('Respostas 5xx encontradas:', JSON.stringify(results, null, 2));
+        }
+        expect(has500).toBe(false);
+        expect(statuses.every((s) => s === 204 || s === 409)).toBe(true);
+
+        // Nunca zero admins ativos, mesmo sob essa carga.
+        const activeAdminsAfter = await prisma.user.count({ where: { roleId: adminRole.id, isActive: true } });
+        expect(activeAdminsAfter).toBeGreaterThan(0);
+      } finally {
+        await prisma.refreshToken.deleteMany({ where: { userId: { in: tempAdmins.map((u) => u.id) } } });
+        await prisma.user.deleteMany({ where: { id: { in: tempAdmins.map((u) => u.id) } } });
+      }
+    });
   });
 });

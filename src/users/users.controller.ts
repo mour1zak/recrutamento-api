@@ -19,4 +19,13 @@ export class UsersController {
   deactivate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
     return this.usersService.deactivate(id, user.id);
   }
+
+  // Achado Qwen rodada 6 (N1-c): sem esta rota, uma desativação errada
+  // (ex.: ADMIN desativa o recrutador errado) era irreversível pela API.
+  @Permissions(PERMISSIONS.USER_MANAGE)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @Patch(':id/reactivate')
+  reactivate(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.reactivate(id);
+  }
 }

@@ -6,5 +6,13 @@
   },
   "env": {
     "node": true
-  }
+  },
+  "overrides": [
+    {
+      "files": ["src/config/env.validation.ts"],
+      "rules": {
+        "unicorn/no-thenable": "off"
+      }
+    }
+  ]
 }

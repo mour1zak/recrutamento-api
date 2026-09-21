@@ -11,12 +11,6 @@ datasource db {
 // Enums
 // ---------------------------------------------------------------------------
 
-enum Role {
-  CANDIDATE
-  RECRUITER
-  ADMIN
-}
-
 enum JobStatus {
   DRAFT // criada, ainda não visível/aberta para candidaturas
   OPEN // aberta, aceita candidaturas
@@ -60,10 +54,19 @@ model User {
   name      String
   email     String   @unique
   password  String
-  role      Role     @default(CANDIDATE)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // RBAC dinâmico (decisão da Fase 1, revisão de escopo): o papel não é um
+  // enum fixo no código, é uma linha em `Role`, e o que cada papel PODE
+  // fazer vem de `RolePermission`. Isso permite a um ADMIN ajustar
+  // permissões em runtime (como no DEVCONNECT), mas o seed sempre cria os
+  // 3 papéis do enunciado (CANDIDATE, RECRUITER, ADMIN) com permissões
+  // coerentes por padrão — a flexibilidade é um adicional, não substitui
+  // a regra de negócio mínima exigida.
+  roleId    Int
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   // Recrutador pertence a uma empresa. Regra "recruiter só opera vagas da
   // própria empresa" é reforçada no Service comparando este campo com o
@@ -79,8 +82,47 @@ model User {
   createdJobs      Job[]                 @relation("JobCreatedBy")
   refreshTokens    RefreshToken[]
 
-  @@index([role])
+  @@index([roleId])
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// RBAC dinâmico (papéis e permissões via banco, não enum fixo)
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique // ex.: "CANDIDATE", "RECRUITER", "ADMIN"
+  description String?
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Permission {
+  id          Int    @id @default(autoincrement())
+  key         String @unique // ex.: "job:create", "application:status:update"
+  description String?
+
+  rolePermissions RolePermission[]
+
+  createdAt DateTime @default(now())
+}
+
+model RolePermission {
+  id           Int        @id @default(autoincrement())
+  roleId       Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId Int
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  // Uma permissão só pode estar associada a um papel uma vez.
+  @@unique([roleId, permissionId])
 }
 
 model RefreshToken {

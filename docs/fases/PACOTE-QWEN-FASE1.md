@@ -25,6 +25,18 @@ protocolo de abertura sobre o `schema.prisma` proposto abaixo.
 5. Erro de negócio (duplicidade, estado inválido) virando `500` em vez de
    `400`/`404`/`409`.
 
+## Mudança de escopo desde a proposta original (avaliador pediu)
+
+O avaliador (fora do enunciado escrito) recomendou usar **API key junto com
+o JWT**. Decisão tomada: API key como guard global (camada "cliente
+conhecido", antes do JWT), sem substituir o JWT (camada "quem é o
+usuário"). Além disso, o modelo de autorização deixou de ser um `enum Role`
+fixo e virou **RBAC dinâmico via banco** (`Role`, `Permission`,
+`RolePermission`), incluindo um endpoint de ADMIN para editar permissões em
+runtime — inspirado no projeto `PROJETO DEVCONNECT` já auditado
+anteriormente. Avalie especificamente se essas duas adições são coerentes
+com o restante da arquitetura e se introduzem algum risco novo.
+
 ## Checklist que você deve aplicar (Gate da Fase 1)
 
 - [ ] Todas as FKs têm `onDelete` definido e a escolha faz sentido de negócio
@@ -44,6 +56,20 @@ protocolo de abertura sobre o `schema.prisma` proposto abaixo.
       simultâneas de estourarem o número de vagas?
 - [ ] Existe algum campo sensível (senha, hash, token) que poderia vazar por
       estar em um relacionamento incluído sem `select` explícito?
+- [ ] O RBAC dinâmico (`Role`/`Permission`/`RolePermission`) tem alguma
+      trava contra um ADMIN se autoexcluir de uma permissão crítica (ex.:
+      remover a própria permissão de gerenciar permissões)? No DEVCONNECT
+      (projeto já auditado) essa trava existia só para 2 permissões
+      específicas, sem generalizar, e **sem nenhum log de auditoria de quem
+      mudou o quê**. Isso deve ser corrigido aqui desde a Fase 1/2 ou é
+      aceitável adiar?
+- [ ] A tabela `RolePermission` tem `createdAt` mas não `updatedAt` — correto
+      para um registro que é criado/apagado (concessão de permissão), nunca
+      "editado"?
+- [ ] O guard de API key (camada adicional ao JWT, pedida pelo avaliador)
+      faz sentido como `APP_GUARD` global, rodando antes do `JwtAuthGuard`?
+      Existe algum risco em aplicá-lo também às rotas públicas (ex.:
+      `/auth/login`)?
 
 ## Schema proposto
 
@@ -60,12 +86,6 @@ datasource db {
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
-
-enum Role {
-  CANDIDATE
-  RECRUITER
-  ADMIN
-}
 
 enum JobStatus {
   DRAFT // criada, ainda não visível/aberta para candidaturas
@@ -110,10 +130,15 @@ model User {
   name      String
   email     String   @unique
   password  String
-  role      Role     @default(CANDIDATE)
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // RBAC dinâmico: o papel é uma linha em `Role`, não um enum fixo. O seed
+  // sempre cria CANDIDATE/RECRUITER/ADMIN com permissões coerentes; um ADMIN
+  // pode ajustar permissões em runtime via RolePermission.
+  roleId    Int
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
 
   // Recrutador pertence a uma empresa. Regra "recruiter só opera vagas da
   // própria empresa" é reforçada no Service comparando este campo com o
@@ -129,8 +154,47 @@ model User {
   createdJobs      Job[]                 @relation("JobCreatedBy")
   refreshTokens    RefreshToken[]
 
-  @@index([role])
+  @@index([roleId])
   @@index([companyId])
+}
+
+// ---------------------------------------------------------------------------
+// RBAC dinâmico (papéis e permissões via banco, não enum fixo)
+// ---------------------------------------------------------------------------
+
+model Role {
+  id          Int              @id @default(autoincrement())
+  name        String           @unique // ex.: "CANDIDATE", "RECRUITER", "ADMIN"
+  description String?
+
+  users           User[]
+  rolePermissions RolePermission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Permission {
+  id          Int    @id @default(autoincrement())
+  key         String @unique // ex.: "job:create", "application:status:update"
+  description String?
+
+  rolePermissions RolePermission[]
+
+  createdAt DateTime @default(now())
+}
+
+model RolePermission {
+  id           Int        @id @default(autoincrement())
+  roleId       Int
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId Int
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  // Uma permissão só pode estar associada a um papel uma vez.
+  @@unique([roleId, permissionId])
 }
 
 model RefreshToken {

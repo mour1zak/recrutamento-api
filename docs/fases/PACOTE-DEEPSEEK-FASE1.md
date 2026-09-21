@@ -24,11 +24,23 @@ Você não escreve código — produz decisões de negócio e planejamento.
 - Upload obrigatório de currículo/documento, vinculado a uma funcionalidade
   real do domínio.
 
+## Mudança de escopo desde a proposta original (avaliador pediu)
+
+O avaliador (fora do enunciado escrito) recomendou usar API key junto com o
+JWT, e a modelagem de autorização deixou de ser um `enum Role` fixo e virou
+**RBAC dinâmico via banco** (tabelas `Role`, `Permission`, `RolePermission`),
+com um endpoint de ADMIN para editar permissões de um papel em runtime. Isso
+significa que a "matriz de permissões" abaixo agora precisa virar uma lista
+de **permission keys** (ex.: `job:create`, `application:status:update`)
+atribuídas a cada papel no seed — ver pedido específico na seção de Seed.
+
 ## Modelo de dados já proposto (schema Prisma, resumo textual)
 
 ```text
-User (id, name, email, password, role[CANDIDATE|RECRUITER|ADMIN], isActive,
-      companyId?)
+User (id, name, email, password, roleId -> Role, isActive, companyId?)
+Role (id, name["CANDIDATE"|"RECRUITER"|"ADMIN"], description)
+Permission (id, key, description)
+RolePermission (roleId, permissionId) -- @@unique([roleId, permissionId])
 CandidateProfile (1-1 com User: headline, summary, phone, endereço via CEP, skills[])
 Company (id, name, cnpj?, endereço via CEP, recrutadores: User[], jobs: Job[])
 Job (id, title, description, companyId, createdById[User],
@@ -103,7 +115,15 @@ Interview: SCHEDULED → COMPLETED
 
 ## Planejamento de Seed — o que preciso de você
 
-Defina um plano de dados de seed que cubra, no mínimo:
+**Novo, por causa do RBAC dinâmico:** defina a lista de `permission keys`
+(formato `recurso:ação`, ex.: `job:create`, `job:edit:own`,
+`application:status:update`, `interview:schedule`, `company:manage`,
+`user:manage`, `document:upload`) e qual conjunto cada papel
+(CANDIDATE/RECRUITER/ADMIN) deve ter no seed, coerente com a matriz de
+permissões desta seção. Isso substitui/detalha a tabela de permissões acima
+em granularidade de implementação.
+
+Defina também um plano de dados de seed que cubra, no mínimo:
 
 - 1 ADMIN, pelo menos 2 empresas com 2+ recrutadores cada, 5+ candidatos
   com perfil completo.
@@ -135,6 +155,7 @@ exemplo:
 ## O que eu preciso de volta
 
 Um relatório com: (1) matriz de permissões validada/corrigida com as
-respostas às 5 perguntas acima, (2) fluxos de estado confirmados ou
-ajustados, (3) plano de seed detalhado (quantidades e casos), (4) tabela de
-cenários de integração externa com o comportamento esperado de cada um.
+respostas às 5 perguntas acima, (2) lista de permission keys por papel para
+o RBAC dinâmico, (3) fluxos de estado confirmados ou ajustados, (4) plano de
+seed detalhado (quantidades e casos), (5) tabela de cenários de integração
+externa com o comportamento esperado de cada um.

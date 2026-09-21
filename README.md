@@ -53,6 +53,13 @@ todos ⬜ não iniciados.
   reservada em `docker/`).
 - Documento de decisões técnicas por fase em `docs/fases/`, revisado por
   duas lentes externas (segurança/ORM e negócio) antes de avançar.
+- **API key como camada adicional ao JWT** (recomendação do avaliador, não
+  consta no enunciado escrito), aplicada como guard global antes da
+  autenticação — ver `docs/fases/FASE-1-MODELAGEM.md` §5.1.
+- **RBAC dinâmico via banco** (`Role`/`Permission`/`RolePermission`) em vez
+  de papéis fixos em enum, incluindo endpoint de ADMIN para editar
+  permissões de um papel em runtime (Nível B, decisão explícita de assumir
+  o custo de tempo — ver `docs/fases/FASE-1-MODELAGEM.md` §5.1).
 
 ### 2.4 Conscientemente fora do escopo
 

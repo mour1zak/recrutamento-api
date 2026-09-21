@@ -143,6 +143,53 @@ Interview: SCHEDULED → COMPLETED
 Transições inválidas (ex.: `HIRED → PENDING`, agir sobre `Application` de
 vaga `CLOSED`) devem virar `409` no Service (Fase 3).
 
+## 5.1 Adendo — requisito adicional do avaliador (não está no enunciado escrito)
+
+O professor recomendou verbalmente usar **API key junto com o token JWT**.
+Isso não está no `AV-04-RECRUTAMENTO.md`, mas como veio de quem avalia, vira
+requisito de fato — registrado aqui para o histórico do projeto.
+
+**Verificação de conformidade com o enunciado (antes de aceitar qualquer
+adição):** "autorização por papel/permissão" já é item obrigatório do
+`AV-04-RECRUTAMENTO.md` — RBAC dinâmico não é escopo extra, é uma forma mais
+robusta de cumprir esse item. "Segurança" é uma das 8 dimensões
+explicitamente avaliadas no enunciado — uma camada adicional (API key) não
+contraria nenhuma linha do documento. Nenhuma das decisões abaixo substitui,
+enfraquece ou entra em conflito com um requisito obrigatório; são adições
+dentro do que já é observado/pedido.
+
+**Decisões tomadas (Fase 1, revisão de escopo):**
+
+1. **API key como camada adicional, não substituta do JWT.** Um guard global
+   (`APP_GUARD`) vai checar um header (`x-api-key`) contra um valor vindo do
+   `.env`, **diferente por ambiente** (dev/test/produção), antes mesmo de
+   chegar no `JwtAuthGuard`. Ela identifica "este é um cliente conhecido",
+   não "quem é o usuário" — essa segunda pergunta continua sendo só do JWT.
+   Isso é tratado como uma aplicação em miniatura de **Zero Trust**: cada
+   camada (API key → JWT → RBAC → dono do recurso) verifica algo diferente,
+   nenhuma confia que a anterior já resolveu tudo.
+2. **RBAC dinâmico via banco, nos dois níveis, dentro do escopo principal da
+   Fase 2** (`Role`, `Permission`, `RolePermission`), substituindo o `enum
+   Role` fixo do desenho original — ver o schema atualizado abaixo. Segue o
+   padrão já validado no `PROJETO DEVCONNECT` (auditoria, seção 7.2), com uma
+   diferença deliberada: aquele projeto não tinha nenhuma auditoria de "quem
+   mudou qual permissão de qual papel" — é um ponto que o Qwen deve avaliar
+   explicitamente nesta revisão (ver pergunta extra no pacote do Qwen).
+   - **Nível A (cumpre o obrigatório):** seed cria os 3 papéis do enunciado
+     com permissões corretas; Guards leem permissão do banco a cada request.
+   - **Nível B (além do pedido, decisão explícita do engenheiro
+     responsável):** endpoint de ADMIN para editar permissões de um papel em
+     runtime, com proteção contra auto-bloqueio. Não é pedido pelo
+     enunciado — decisão consciente de assumir o custo de tempo dentro dos 5
+     dias disponíveis, para reforçar a dimensão "segurança"/"arquitetura"
+     avaliada. Deve aparecer na seção "Além do que foi pedido" do README
+     final, não escondido.
+3. **MFA fica como bônus condicional**, não como parte do núcleo da Fase 2.
+   Documentado aqui para não ficar implícito: se sobrar tempo real depois de
+   todo o obrigatório + API key + RBAC dinâmico (Nível A e B), avaliamos
+   implementar TOTP; caso contrário, vai para "conscientemente fora do
+   escopo" no README final.
+
 ## 6. Autoavaliação contra o Gate do Qwen (Fase 1)
 
 - [x] Todas as FKs têm `onDelete` definido (ver schema — nenhuma relação ficou implícita).

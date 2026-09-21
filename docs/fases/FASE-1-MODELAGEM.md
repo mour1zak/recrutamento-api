@@ -49,8 +49,10 @@ User     1 ───── N Job          (recruiter que criou a vaga)
 Job      1 ───── N Application
 Application 1 ── N ApplicationStatusHistory
 Application 1 ── N Interview
-Document N ────── N Application (um documento pode ser reaproveitado em
-                                  várias candidaturas do mesmo candidato)
+Document 1 ────── N Application (um documento pode ser reaproveitado em
+                                  várias candidaturas do mesmo candidato —
+                                  a FK fica em Application.resumeDocumentId,
+                                  não é uma tabela de junção N-N)
 User     1 ───── N Document     (documentos enviados pelo usuário)
 User     1 ───── N RefreshToken
 ```
@@ -74,6 +76,7 @@ desta candidatura?".
 | Histórico quando necessário | `ApplicationStatusHistory` (append-only, sem `updatedAt` — é log, não é editado) |
 | Dados sensíveis fora da resposta | `User.password` nunca serializado (Fase 2: DTO de resposta / `class-transformer`) |
 | Operação pessoal usa identidade autenticada | `candidateId` de `Application` deve vir de `@CurrentUser()`, nunca do body (Fase 2) |
+| Usuário não manipula recurso de terceiro via ID (aplicado a upload) | `Application.resumeDocumentId` não tem como o schema garantir sozinho que o documento referenciado pertence ao mesmo candidato — **regra obrigatória do Service (Fase 2)**: validar `resumeDocument.ownerId === candidateId` antes de aceitar. Achado da auditoria Qwen rodada 2 (C6) |
 
 ## 3. Concorrência (lição da avaliação anterior)
 
@@ -102,6 +105,14 @@ commit
 
 Isso será testado com `Promise.all` disparando N requisições de contratação
 simultâneas para uma vaga com `vacancies = 1` (Fase 3 / `test/concurrency.spec.ts`).
+
+**Camada extra decidida (achado válido da auditoria Qwen rodada 2, C1):** a
+transação com lock é a defesa primária, mas nada no banco impede hoje um
+`UPDATE` direto (bypassando a aplicação) de deixar `filledCount > vacancies`.
+Vamos adicionar, na migration da Fase 3, `CHECK (filledCount <= vacancies)`
+e `CHECK (filledCount >= 0)` como rede de segurança adicional — não é
+sintaxe nativa do `schema.prisma` (Prisma ainda não tem `@check` declarativo
+estável), então entra como SQL editado à mão na migration gerada.
 
 ## 4. Matriz de permissões (proposta inicial — validar com DeepSeek)
 
@@ -165,9 +176,26 @@ dentro do que já é observado/pedido.
    `.env`, **diferente por ambiente** (dev/test/produção), antes mesmo de
    chegar no `JwtAuthGuard`. Ela identifica "este é um cliente conhecido",
    não "quem é o usuário" — essa segunda pergunta continua sendo só do JWT.
-   Isso é tratado como uma aplicação em miniatura de **Zero Trust**: cada
-   camada (API key → JWT → RBAC → dono do recurso) verifica algo diferente,
-   nenhuma confia que a anterior já resolveu tudo.
+   **Correção de rótulo (achado válido da auditoria Qwen rodada 2, C8):**
+   isto é **defesa em camadas** (defense in depth), não "Zero Trust" — um
+   valor único e estático, igual para todo cliente, sem identidade própria,
+   sem expiração e sem revogação individual é um *shared secret*, não uma
+   verificação contínua por identidade. Mantemos a camada (é o que o
+   avaliador pediu), mas documentamos a limitação real: (a) ela não
+   distingue qual cliente está chamando, só que "conhece o segredo"; (b) num
+   cliente público (SPA/mobile) o valor seria extraível — aqui assumimos que
+   o consumidor é sempre nosso próprio backend/cliente confiável, não um
+   app de terceiros; (c) precisa comparação em tempo constante e nunca
+   aparecer em log (redigir o header em qualquer logger). O modelo com
+   entidade própria (`ApiKey` com hash, expiração, revogação por cliente) é
+   o caminho correto para produção real — registrado como melhoria em
+   `FEEDBACKS-MELHORIA.md` #6, não implementado agora por custo/prazo.
+   **Política de precedência 401 (achado do DeepSeek + Qwen C8):** falta ou
+   invalidade da API key → `401`; falta ou invalidade do JWT → `401`;
+   autenticado mas sem a permission key necessária → `403`; autenticado,
+   com permissão, mas recurso não pertence a ele → `404`; regra de negócio
+   violada → `409`. Isso vale inclusive para `/auth/login` (sem API key
+   válida → `401` antes mesmo de checar as credenciais).
 2. **RBAC dinâmico via banco, nos dois níveis, dentro do escopo principal da
    Fase 2** (`Role`, `Permission`, `RolePermission`), substituindo o `enum
    Role` fixo do desenho original — ver o schema atualizado abaixo. Segue o
@@ -190,17 +218,23 @@ dentro do que já é observado/pedido.
    implementar TOTP; caso contrário, vai para "conscientemente fora do
    escopo" no README final.
 
-## 6. Autoavaliação contra o Gate do Qwen (Fase 1)
+## 6. Veredito externo registrado (Fase 1)
 
-- [x] Todas as FKs têm `onDelete` definido (ver schema — nenhuma relação ficou implícita).
-- [x] Campos de auditoria (`createdAt`) em todos os modelos; `updatedAt` em
-      todos exceto `ApplicationStatusHistory` e `Document`, que são
-      append-only por design (log de histórico e arquivo enviado não são
-      "editados", são substituídos por um novo registro).
-- [x] `@@unique([candidateId, jobId])` implementa a regra de candidatura
-      duplicada no nível de banco (não só no Service).
-- [ ] **Pendente de validação externa**: revisão de segurança/ORM pelo Qwen
-      e revisão de negócio/matriz de permissões pelo DeepSeek.
+Esta seção deixou de ser autoavaliação — registra o veredito real recebido,
+não uma lista marcada por nós mesmos (achado legítimo da auditoria Qwen
+rodada 2: "o documento que existe para registrar o veredito externo não
+registrava o veredito").
+
+- **DeepSeek** (negócio/infra): relatório completo entregue e incorporado —
+  ver `PARECER-DEEPSEEK-FASE1.md`. Sem veredito de aprovação/reprovação
+  (papel de planejamento, não de gate).
+- **Qwen** (ORM/DevSecOps), rodada 2: **REPROVADO** — ver
+  `PARECER-QWEN-FASE1-RODADA2.md` na íntegra. Resposta do time, item a
+  item (aceito/corrigido/discordado/pendente), em
+  `TRIAGEM-REVISOES-RODADA2.md`.
+- Correções já aplicadas nesta rodada estão registradas como comentários no
+  próprio `schema.prisma` (busca por "achado" ou "Qwen rodada 2" no
+  arquivo) e detalhadas na triagem.
 
 ## 7. Lições das auditorias dos projetos anteriores
 

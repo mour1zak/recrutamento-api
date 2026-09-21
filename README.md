@@ -49,8 +49,10 @@ todos ⬜ não iniciados.
 
 - Histórico de status de candidatura (`ApplicationStatusHistory`) como
   entidade auditável, não só um campo de status mutável.
-- Observabilidade com Loki/Promtail/Grafana (estrutura de pastas já
-  reservada em `docker/`).
+- Observabilidade com Loki/Promtail/Grafana, planejada para a Fase 4
+  (pasta `docker/` só aparece no repositório quando tiver arquivo real
+  dentro — Git não versiona diretório vazio; correção de imprecisão
+  apontada na auditoria Qwen rodada 2).
 - Documento de decisões técnicas por fase em `docs/fases/`, revisado por
   duas lentes externas (segurança/ORM e negócio) antes de avançar.
 - **API key como camada adicional ao JWT** (recomendação do avaliador, não

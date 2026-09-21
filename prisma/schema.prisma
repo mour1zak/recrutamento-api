@@ -94,12 +94,21 @@ model Role {
   id          Int              @id @default(autoincrement())
   name        String           @unique // ex.: "CANDIDATE", "RECRUITER", "ADMIN"
   description String?
+  // Protege os 3 papéis do enunciado contra rename/exclusão acidental pelo
+  // endpoint de ADMIN (Nível B). Verificado no Service, não é enforced pelo
+  // banco sozinho — achado real da auditoria Qwen rodada 2 (item 8).
+  isSystem    Boolean          @default(false)
 
   users           User[]
   rolePermissions RolePermission[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // @map: "role" colide com palavra reservada de privilégio do PostgreSQL
+  // (GRANT role, pg_roles) — evita precisar citar entre aspas em SQL bruto,
+  // inclusive no SELECT ... FOR UPDATE da Fase 3 (achado Qwen rodada 2, R5).
+  @@map("app_roles")
 }
 
 model Permission {
@@ -110,6 +119,8 @@ model Permission {
   rolePermissions RolePermission[]
 
   createdAt DateTime @default(now())
+
+  @@map("app_permissions")
 }
 
 model RolePermission {
@@ -117,12 +128,22 @@ model RolePermission {
   roleId       Int
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permissionId Int
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  // Restrict (não Cascade): apagar uma Permission enquanto ela ainda está
+  // concedida a algum papel é bloqueado pelo banco. Corrige achado real da
+  // auditoria Qwen rodada 2 (C7): com Cascade, apagar 1 Permission revogava
+  // essa permissão de TODOS os papéis do sistema em silêncio, sem rastro.
+  // Com Restrict, é preciso revogar explicitamente de cada papel primeiro.
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 
   // Uma permissão só pode estar associada a um papel uma vez.
   @@unique([roleId, permissionId])
+  // Sem isto, "quais papéis têm a permissão X" (a tela do endpoint de ADMIN
+  // do Nível B) fazia varredura completa da tabela — achado real da
+  // auditoria Qwen rodada 2 (R3).
+  @@index([permissionId])
+  @@map("app_role_permissions")
 }
 
 model RefreshToken {
@@ -135,6 +156,8 @@ model RefreshToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+  // Consulta de limpeza/validação de tokens expirados — achado Qwen rodada 2.
+  @@index([expiresAt])
 }
 
 model CandidateProfile {
@@ -209,8 +232,12 @@ model Job {
   updatedAt   DateTime  @updatedAt
   closedAt    DateTime?
 
-  @@index([companyId])
-  @@index([status])
+  // Composto em vez de dois índices separados: cobre "vagas da empresa X"
+  // (prefixo companyId) e "vagas da empresa X com status Y" numa só
+  // estrutura — um @@index([status]) isolado teria seletividade baixa
+  // (poucos valores possíveis) — achado Qwen rodada 2 (ressalva "índices
+  // redundantes").
+  @@index([companyId, status])
 }
 
 // ---------------------------------------------------------------------------
@@ -240,9 +267,11 @@ model Application {
 
   // Regra obrigatória: candidatura duplicada proibida.
   @@unique([candidateId, jobId])
-  @@index([jobId])
+  // @@index([jobId]) sozinho seria redundante (já é o prefixo do composto
+  // abaixo); o composto cobre "candidaturas da vaga X" e "candidaturas da
+  // vaga X com status Y" (a consulta real de GET /jobs/:id/applications).
+  @@index([jobId, status])
   @@index([candidateId])
-  @@index([status])
 }
 
 model ApplicationStatusHistory {
@@ -279,6 +308,14 @@ model Interview {
   status          InterviewStatus @default(SCHEDULED)
   feedback        String?
 
+  // RESCHEDULED gera uma nova Interview (não edita a antiga in-place),
+  // apontando pra qual entrevista ela substitui — decisão do DeepSeek
+  // (Fase 1, planejamento de negócio): preserva o registro original como
+  // histórico em vez de sobrescrevê-lo.
+  previousInterviewId Int?      @unique
+  previousInterview   Interview? @relation("InterviewReschedule", fields: [previousInterviewId], references: [id], onDelete: SetNull)
+  rescheduledTo       Interview? @relation("InterviewReschedule")
+
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -300,11 +337,15 @@ model Document {
   originalName String
   mimeType     String
   sizeBytes    Int
-  path         String
+  // @unique evita colisão de arquivo físico (dois registros apontando pro
+  // mesmo caminho em disco) — achado real da auditoria Qwen rodada 2.
+  path         String @unique
 
   applications Application[]
 
   createdAt    DateTime     @default(now())
 
-  @@index([ownerId])
+  // Composto: cobre "documentos do usuário X" e "documentos do tipo Y do
+  // usuário X" — achado Qwen rodada 2.
+  @@index([ownerId, type])
 }

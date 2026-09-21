@@ -1,6 +1,59 @@
-# Pacote para revisão — Qwen (QA Lead & DevSecOps) — Fase 1
+# Pacote para revisão — Qwen (QA Lead & DevSecOps) — Fase 1, Rodada 3
 
-Cole este documento inteiro na conversa com o Qwen.
+Cole este documento inteiro na conversa com o Qwen. Esta é a **reapresentação**
+pedida na sua auditoria da rodada 2 (veredito: REPROVADO). O time processou
+seu relatório item a item — resposta completa em `TRIAGEM-REVISOES-RODADA2.md`
+do repositório (commit mais recente). Resumo do que mudou desde então, antes
+do checklist:
+
+**Corrigido no schema (aceito integralmente):**
+- C7 — `Permission → RolePermission`: `Cascade` virou `Restrict` (apagar uma
+  permissão em uso agora é bloqueado pelo banco, não revoga em cascata).
+- C6 — `Document.path` agora é `@unique`.
+- R3 — `@@index([permissionId])` adicionado em `RolePermission`.
+- R5 — `@@map` em `Role`/`Permission`/`RolePermission` (evita colisão com
+  palavras reservadas do Postgres).
+- `Role.isSystem` adicionado (primeiro passo de proteção dos 3 papéis do
+  enunciado contra rename/exclusão).
+- Índices compostos substituindo os isolados: `Job(companyId, status)`,
+  `Application(jobId, status)`, `Document(ownerId, type)`,
+  `RefreshToken.expiresAt`.
+- `Interview.previousInterviewId` (reagendamento vira novo registro, não
+  edita in-place — vindo do parecer do DeepSeek).
+
+**Planejado, não é schema (aceito, vira código na Fase 2/3):**
+- C1 — `CHECK (filledCount <= vacancies)` entra via SQL na migration da
+  Fase 3, junto com a transação com lock. Não é sintaxe nativa do
+  `schema.prisma`.
+- C3 — vazamento de `password`/`tokenHash`/`path` por `include` aninhado:
+  mitigação via `omit` global no `PrismaClient` (Fase 2), não schema.
+- C6 (parte 2) — checagem de que `resumeDocument.ownerId === candidateId`
+  vira regra obrigatória do Service (não expressável só com FK).
+- C8 — rótulo "Zero Trust" corrigido para "defesa em camadas" nos docs; API
+  key segue sem modelo de dados próprio por decisão de custo/prazo (ver
+  `FEEDBACKS-MELHORIA.md` #6), com a limitação documentada.
+- C9 — aceito: RBAC Nível B (endpoint de ADMIN editando permissões em
+  runtime) foi resequenciado para **depois** de todo o obrigatório estar
+  verde, não mais em paralelo.
+
+**Mantido como estava, com justificativa (não aceito, defendido):**
+- C4 — política de deleção de `User` não é vista como contraditória:
+  `Cascade` só em registros-detalhe sem sentido próprio
+  (`CandidateProfile`/`RefreshToken`/`Document`), `Restrict` em histórico de
+  negócio (`Application`/`Job`/`ApplicationStatusHistory`). Remoção de
+  usuário é via `isActive = false`, não `DELETE` físico.
+- C5 — `User.companyId onDelete: SetNull` mantido: autorização falha
+  fechada quando `companyId` é `null`, e `JwtStrategy` revalida contra o
+  banco a cada request (sem JWT desatualizado carregando `companyId`
+  antigo). Se você tinha um cenário de exploração específico em mente,
+  descreva-o — não temos o relatório original da rodada 1 completo para
+  reavaliar sem mais contexto.
+
+**Não é falha, é sequência de fases (C2, `.env.example`):** `package.json`,
+`tsconfig.json`, `prisma.config.ts` e `.env.example` ainda não existem
+porque a Fase 1 é modelagem apenas, por decisão explícita do processo do
+projeto — nascem no primeiro passo da Fase 2 (scaffolding do Nest), que
+ainda não começou. Não avalie isso como item da Fase 1.
 
 ---
 
@@ -37,39 +90,29 @@ runtime — inspirado no projeto `PROJETO DEVCONNECT` já auditado
 anteriormente. Avalie especificamente se essas duas adições são coerentes
 com o restante da arquitetura e se introduzem algum risco novo.
 
-## Checklist que você deve aplicar (Gate da Fase 1)
+## Checklist — o que ainda está genuinamente em aberto
 
-- [ ] Todas as FKs têm `onDelete` definido e a escolha faz sentido de negócio
-      (não é só "Cascade em tudo")?
-- [ ] Todos os modelos têm campos de auditoria (`createdAt`, e `updatedAt`
-      quando o registro é mutável — modelos append-only como log de
-      histórico não precisam de `updatedAt`, isso é intencional)?
-- [ ] A regra "candidatura duplicada proibida" tem constraint única real no
-      banco (não só checagem no Service)?
-- [ ] As relações modeladas realmente serão úteis para os endpoints previstos
-      (ex.: uma candidatura precisa trazer dados da vaga e da empresa —
-      o modelo permite isso com um único `include` bem desenhado)?
+Os itens do checklist original com resposta já dada nesta rodada (FKs,
+auditoria, `@@unique` de candidatura, `RolePermission` sem `updatedAt`, API
+key como `APP_GUARD` global) não estão repetidos aqui — ver o resumo acima
+e o schema abaixo. O que resta para o seu parecer:
+
+- [ ] As correções aplicadas (Restrict em vez de Cascade, `isSystem`,
+      índices, `@map`) resolvem de fato os pontos C6/C7/R3/R5, ou ainda
+      falta algo?
+- [ ] A trava de "último administrador" e a revogação não-destrutiva de
+      permissão (soft-delete com autor) ficaram como pendência decidida
+      (`FEEDBACKS-MELHORIA.md` #3/#4), não implementadas agora — isso é
+      aceitável para a Fase 1/2, ou você mantém como bloqueio?
+- [ ] A política de precedência 401 documentada (API key ausente/inválida →
+      401; JWT ausente/inválido → 401; sem permission key → 403; recurso de
+      terceiro → 404; regra de negócio → 409) resolve a ambiguidade que
+      você apontou em C8?
+- [ ] Sobre C4 e C5: a justificativa de negócio dada é suficiente, ou existe
+      um cenário concreto de exploração que a nossa resposta não cobre?
 - [ ] Os enums de estado (`JobStatus`, `ApplicationStatus`, `InterviewStatus`)
-      cobrem os fluxos descritos sem estados ambíguos ou faltantes?
-- [ ] Os campos `vacancies`/`filledCount` em `Job` são suficientes para
-      suportar uma transação com lock de linha que impeça duas contratações
-      simultâneas de estourarem o número de vagas?
-- [ ] Existe algum campo sensível (senha, hash, token) que poderia vazar por
-      estar em um relacionamento incluído sem `select` explícito?
-- [ ] O RBAC dinâmico (`Role`/`Permission`/`RolePermission`) tem alguma
-      trava contra um ADMIN se autoexcluir de uma permissão crítica (ex.:
-      remover a própria permissão de gerenciar permissões)? No DEVCONNECT
-      (projeto já auditado) essa trava existia só para 2 permissões
-      específicas, sem generalizar, e **sem nenhum log de auditoria de quem
-      mudou o quê**. Isso deve ser corrigido aqui desde a Fase 1/2 ou é
-      aceitável adiar?
-- [ ] A tabela `RolePermission` tem `createdAt` mas não `updatedAt` — correto
-      para um registro que é criado/apagado (concessão de permissão), nunca
-      "editado"?
-- [ ] O guard de API key (camada adicional ao JWT, pedida pelo avaliador)
-      faz sentido como `APP_GUARD` global, rodando antes do `JwtAuthGuard`?
-      Existe algum risco em aplicá-lo também às rotas públicas (ex.:
-      `/auth/login`)?
+      cobrem os fluxos descritos sem estados ambíguos ou faltantes? (Fluxos
+      atualizados pelo DeepSeek em `PARECER-DEEPSEEK-FASE1.md` §3.)
 
 ## Schema proposto
 
@@ -143,6 +186,7 @@ model User {
   // Recrutador pertence a uma empresa. Regra "recruiter só opera vagas da
   // própria empresa" é reforçada no Service comparando este campo com o
   // companyId da vaga — o schema só garante a integridade referencial.
+  // onDelete SetNull mantido de propósito (ver resposta a C5 acima).
   companyId Int?
   company   Company? @relation("CompanyRecruiters", fields: [companyId], references: [id], onDelete: SetNull)
 
@@ -166,12 +210,17 @@ model Role {
   id          Int              @id @default(autoincrement())
   name        String           @unique // ex.: "CANDIDATE", "RECRUITER", "ADMIN"
   description String?
+  // Novo (rodada 3): protege os 3 papéis do enunciado contra rename/exclusão
+  // acidental pelo endpoint de ADMIN (Nível B).
+  isSystem    Boolean          @default(false)
 
   users           User[]
   rolePermissions RolePermission[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@map("app_roles")
 }
 
 model Permission {
@@ -182,6 +231,8 @@ model Permission {
   rolePermissions RolePermission[]
 
   createdAt DateTime @default(now())
+
+  @@map("app_permissions")
 }
 
 model RolePermission {
@@ -189,12 +240,17 @@ model RolePermission {
   roleId       Int
   role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
   permissionId Int
-  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  // Novo (rodada 3): Restrict em vez de Cascade — corrige C7. Apagar uma
+  // Permission em uso agora é bloqueado pelo banco, não revoga em cascata.
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
 
   createdAt DateTime @default(now())
 
   // Uma permissão só pode estar associada a um papel uma vez.
   @@unique([roleId, permissionId])
+  // Novo (rodada 3): corrige R3.
+  @@index([permissionId])
+  @@map("app_role_permissions")
 }
 
 model RefreshToken {
@@ -207,6 +263,8 @@ model RefreshToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
+  // Novo (rodada 3): consulta de limpeza/validação de tokens expirados.
+  @@index([expiresAt])
 }
 
 model CandidateProfile {
@@ -281,8 +339,9 @@ model Job {
   updatedAt   DateTime  @updatedAt
   closedAt    DateTime?
 
-  @@index([companyId])
-  @@index([status])
+  // Novo (rodada 3): composto substitui os dois índices isolados (ressalva
+  // "índices redundantes").
+  @@index([companyId, status])
 }
 
 // ---------------------------------------------------------------------------
@@ -312,9 +371,10 @@ model Application {
 
   // Regra obrigatória: candidatura duplicada proibida.
   @@unique([candidateId, jobId])
-  @@index([jobId])
+  // Novo (rodada 3): composto substitui @@index([jobId]) isolado (já é
+  // prefixo) + @@index([status]) isolado.
+  @@index([jobId, status])
   @@index([candidateId])
-  @@index([status])
 }
 
 model ApplicationStatusHistory {
@@ -351,6 +411,13 @@ model Interview {
   status          InterviewStatus @default(SCHEDULED)
   feedback        String?
 
+  // Novo (rodada 3), sugestão do DeepSeek: RESCHEDULED gera um novo
+  // registro em vez de editar in-place, preservando o original como
+  // histórico.
+  previousInterviewId Int?      @unique
+  previousInterview   Interview? @relation("InterviewReschedule", fields: [previousInterviewId], references: [id], onDelete: SetNull)
+  rescheduledTo       Interview? @relation("InterviewReschedule")
+
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
@@ -372,19 +439,22 @@ model Document {
   originalName String
   mimeType     String
   sizeBytes    Int
-  path         String
+  // Novo (rodada 3): @unique corrige C6 (colisão de caminho físico).
+  path         String @unique
 
   applications Application[]
 
   createdAt    DateTime     @default(now())
 
-  @@index([ownerId])
+  // Novo (rodada 3): composto substitui @@index([ownerId]) isolado.
+  @@index([ownerId, type])
 }
 ```
 
-## O que eu preciso de você
+## O que eu preciso de você (Rodada 3)
 
-Emita um **relatório de aprovação ou reprovação detalhado**, no formato:
+Emita um **relatório de aprovação ou reprovação detalhado**, no mesmo
+formato de antes:
 
 ```text
 VEREDITO: [APROVADO | APROVADO COM RESSALVAS | REPROVADO]
@@ -401,4 +471,11 @@ Sugestões de melhoria (opcionais):
 - ...
 ```
 
-Traga de volta este relatório para eu ajustar o schema antes de avançarmos.
+Peço explicitamente: se você mantiver C4 e/ou C5 como falha crítica, inclua
+o cenário concreto de exploração/quebra que motiva isso — a resposta do
+time a esses dois itens está em `TRIAGEM-REVISOES-RODADA2.md` e precisa de
+um caso específico para ser reavaliada, não só a reafirmação do princípio
+geral. Se C2/`.env.example` aparecerem de novo como falha "desta fase",
+also justifique por que isso deveria bloquear uma fase de modelagem, dado
+que o scaffolding do Nest é, por decisão do projeto, o primeiro passo da
+Fase 2.

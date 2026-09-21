@@ -1,11 +1,14 @@
 # Plataforma de Recrutamento — API (AV-04)
 
-> **Status atual: Fase 2, Passo 1 (scaffolding) concluído.** Fase 1 aprovada
-> com ressalvas pelo Qwen (rodada 3) — ver `docs/fases/`. NestJS + Prisma
-> 7.10.0 + PostgreSQL já conectam e o build de produção já funciona; nenhum
-> endpoint de negócio (auth, CRUDs) foi implementado ainda. Este README é
-> atualizado a cada fase concluída — documento histórico da avaliação, não
-> tarefa de última hora.
+> **Status atual: Fase 2 (Auth/RBAC) fechada na Rodada 6 pelo Qwen**
+> (APROVADO COM RESSALVAS) — ver `docs/fases/`. Rodada 7 já reenviada,
+> aguardando retorno. Auth completo (registro/login/refresh/logout),
+> RBAC dinâmico funcionando de ponta a ponta, filtro global de exceções,
+> 15 testes automatizados verdes. O DeepSeek já entregou o mapa dos 41
+> endpoints do restante do domínio (Company/Job/Application/
+> CandidateProfile/Interview/Document/Users/RBAC Nível B) — implementação
+> ainda não iniciada. Este README é atualizado a cada fase concluída —
+> documento histórico da avaliação, não tarefa de última hora.
 
 ## 1. Objetivo
 
@@ -207,13 +210,16 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **12 testes automatizados, todos
-verdes** (`test/app.e2e-spec.ts`, `test/auth.e2e-spec.ts`,
-`src/app.controller.spec.ts`), cobrindo os cenários obrigatórios de auth
-(400/401/409, fluxo completo de registro/login/refresh/logout, e uma rota
-protegida por permission key). Os demais dos 10 cenários do enunciado
-(403/404 de dono de recurso, upload, integração externa, mudança de
-estado) só têm onde morar quando os módulos correspondentes existirem.
+e o teste não enviava a chave). Hoje: **15 testes automatizados, todos
+verdes** (14 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts`, 1
+unitário em `src/app.controller.spec.ts`), cobrindo os cenários
+obrigatórios de auth (400/401/409, fluxo completo de registro/login/
+refresh/logout, uma rota protegida por permission key, e a trava de
+último administrador sob concorrência real — 8 admins temporários, 4
+pares de desativação mútua simultânea, nunca `500`). Os demais dos 10
+cenários do enunciado (403/404 de dono de recurso, upload, integração
+externa, mudança de estado) só têm onde morar quando os módulos
+correspondentes existirem.
 
 ## 5. Endpoints
 

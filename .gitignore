@@ -4,6 +4,7 @@ node_modules/
 # Build
 dist/
 build/
+*.tsbuildinfo
 
 # Prisma Client gerado (recriado via `npx prisma generate`, não versionar)
 src/generated/

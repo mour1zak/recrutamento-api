@@ -1,9 +1,11 @@
 # Plataforma de Recrutamento — API (AV-04)
 
-> **Status atual: Fase 1 — Fundamentação e Modelagem, aguardando validação
-> externa (Qwen/DevSecOps e DeepSeek/Negócio).** Nenhum endpoint foi
-> implementado ainda. Este README será atualizado a cada fase concluída —
-> ele é o documento histórico da avaliação, não uma tarefa de última hora.
+> **Status atual: Fase 2, Passo 1 (scaffolding) concluído.** Fase 1 aprovada
+> com ressalvas pelo Qwen (rodada 3) — ver `docs/fases/`. NestJS + Prisma
+> 7.10.0 + PostgreSQL já conectam e o build de produção já funciona; nenhum
+> endpoint de negócio (auth, CRUDs) foi implementado ainda. Este README é
+> atualizado a cada fase concluída — documento histórico da avaliação, não
+> tarefa de última hora.
 
 ## 1. Objetivo
 
@@ -26,7 +28,7 @@ deixamos isso implícito no código._
 
 | Item | Status |
 |---|---|
-| Modelagem Prisma com relacionamentos, constraints, enums | 🟡 Proposto (`prisma/schema.prisma`), aguardando validação |
+| Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | ⬜ Não iniciado |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | ⬜ Não iniciado |
 | CRUDs / gestão das entidades | ⬜ Não iniciado |
@@ -35,9 +37,9 @@ deixamos isso implícito no código._
 | Upload de currículo/documento | ⬜ Não iniciado |
 | Integração externa via `HttpService` (CEP/localização) | ⬜ Não iniciado |
 | Interceptor coerente | ⬜ Não iniciado |
-| Helmet + Compression | ⬜ Não iniciado |
+| Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | ⬜ Não iniciado |
-| Build de produção sem erros | ⬜ Não iniciado |
+| Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
 | Testes obrigatórios (10 cenários do enunciado) | ⬜ Não iniciado |
 
 ### 2.2 Bônus (só depois do obrigatório)
@@ -65,8 +67,15 @@ todos ⬜ não iniciados.
 
 ### 2.4 Conscientemente fora do escopo
 
-_(preencher conforme decisões forem tomadas — ex.: rate limiting em login,
-se for adiado, deve aparecer aqui com justificativa, não silenciado)._
+- **`npm audit` reporta 4 vulnerabilidades "high"** em `mysql2`/
+  `deepmerge-ts` — são dependências transitivas do **driver MySQL que vem
+  dentro do pacote `prisma` (CLI)**, mesmo usando só PostgreSQL. São
+  `devDependencies` (não entram no build de produção). `npm audit fix
+  --force` resolveria rebaixando para `prisma@6.19.3`, o que quebraria o
+  requisito explícito do enunciado (Prisma **7.10.0**) — por isso não foi
+  aplicado.
+- Rate limiting em `/auth/login` — decisão pendente, será avaliada na
+  Fase 2 junto com o `ThrottlerModule` (já instalado).
 
 ## 3. Como este projeto foi conduzido
 
@@ -76,10 +85,81 @@ externas antes de avançar para a próxima fase. Ver `docs/fases/FASE-1-MODELAGE
 
 ## 4. Instalação e execução
 
-_(Esta seção só será preenchida com passos reais e testados à medida que
-cada peça existir — instalação, `.env`, migrations, seed, dev, build,
-Docker/observabilidade. Nenhum passo é escrito aqui antes de ter sido
-executado de fato.)_
+Passos testados de verdade nesta máquina (Windows, PostgreSQL 18 local,
+Node 24). Se algo aqui não funcionar exatamente assim no seu ambiente, é
+uma falha de documentação — abra uma issue/avise.
+
+### 4.1 Pré-requisitos
+
+- Node.js 22+ (testado com 24.18.0)
+- PostgreSQL 14+ rodando localmente (testado com 18) — pode ser um serviço
+  já instalado ou um container, não precisa ser dedicado só a este projeto
+
+### 4.2 Banco de dados
+
+Crie um usuário e dois bancos dedicados (dev e teste) — **não** use o
+superusuário `postgres` na aplicação:
+
+```sql
+CREATE ROLE recrutamento_app LOGIN PASSWORD 'escolha-uma-senha' CREATEDB;
+CREATE DATABASE recrutamento_dev  OWNER recrutamento_app;
+CREATE DATABASE recrutamento_test OWNER recrutamento_app;
+```
+
+(`CREATEDB` é necessário porque o `prisma migrate dev` cria um banco
+"sombra" temporário para calcular diffs de schema.)
+
+### 4.3 Variáveis de ambiente
+
+```bash
+cp .env.example .env
+```
+
+Edite `DATABASE_URL` com o usuário/senha criados acima, e gere valores
+próprios para os segredos (nunca reaproveite os do `.env.example`):
+
+```bash
+openssl rand -hex 32   # para JWT_SECRET e JWT_REFRESH_SECRET
+openssl rand -hex 24   # para API_KEY
+```
+
+Para testes automatizados, crie também um `.env.test` apontando para
+`recrutamento_test` (mesmo formato do `.env`).
+
+### 4.4 Instalação e migrations
+
+```bash
+npm install
+npx prisma migrate dev
+```
+
+Isso aplica as migrations e gera o Prisma Client em `src/generated/prisma`
+(pasta gerada, fora do Git — recriada por este comando).
+
+### 4.5 Rodando em desenvolvimento
+
+```bash
+npm run start:dev
+```
+
+A API sobe em `http://localhost:3000` (ou a porta definida em `PORT`).
+
+### 4.6 Build de produção
+
+```bash
+npm run build
+npm run start:prod
+```
+
+### 4.7 Testes
+
+```bash
+npm test        # unitários
+npm run test:e2e
+```
+
+_(Suíte de testes ainda não escrita — comandos existem e funcionam, mas
+sem specs de negócio até a Fase 2/5.)_
 
 ## 5. Endpoints
 

@@ -15,13 +15,18 @@ sem os de "Passo 1" resolvidos.
 - [ ] **CE-2**: catálogo de 28 permission keys como módulo de código
       compartilhado (seed + decorators de Guard), não só em
       `PARECER-DEEPSEEK-FASE1.md`.
-- [ ] `package.json`, `tsconfig.json`, `prisma.config.ts`, `.env.example`
-      versionados.
-- [ ] `generator client` no `schema.prisma` com `moduleFormat` e
+- [x] `package.json`, `tsconfig.json`, `prisma.config.ts`, `.env.example`
+      versionados. **Feito** — scaffolding Nest 12 (ESM, Vitest) +
+      `prisma.config.ts` + migration inicial aplicada em Postgres 18 local
+      (`recrutamento_dev`/`recrutamento_test`, usuário dedicado
+      `recrutamento_app`, não o superusuário).
+- [x] `generator client` no `schema.prisma` com `moduleFormat` e
       `importFileExtension` explícitos (evita `ERR_UNKNOWN_FILE_EXTENSION`
       dependendo do `tsconfig` do ambiente — achado real da rodada 3).
-- [ ] `omit` global no `PrismaService`/`PrismaClient` cobrindo `password`,
-      `tokenHash`, `path` (mitigação de C3).
+      **Feito** — `moduleFormat = "esm"`, `importFileExtension = "js"`.
+- [x] `omit` global no `PrismaService`/`PrismaClient` cobrindo `password`,
+      `tokenHash`, `path` (mitigação de C3). **Feito** —
+      `src/prisma/prisma.service.ts`.
 - [ ] Regra de negócio escrita e implementada: **nenhum endpoint de delete
       físico de `User`** — só `isActive = false`. Qualquer `P2003`
       remanescente mapeado para `409`, nunca `500`.

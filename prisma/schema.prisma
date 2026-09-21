@@ -1,6 +1,13 @@
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  // Explícito por decisão (achado Qwen rodada 3, §5): sem isso, o gerador
+  // infere o formato a partir do ambiente (tsconfig/"type" do package.json)
+  // no momento do `generate` — mudar de máquina/CI podia gerar client ESM
+  // num lugar e CommonJS noutro, silenciosamente. O projeto é ESM
+  // ("type": "module" no package.json), então fixamos os dois aqui.
+  moduleFormat        = "esm"
+  importFileExtension = "js"
 }
 
 datasource db {

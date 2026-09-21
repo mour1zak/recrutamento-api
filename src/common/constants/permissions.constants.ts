@@ -55,6 +55,10 @@ export const PERMISSIONS = {
   USER_READ: 'user:read',
   USER_MANAGE: 'user:manage',
   ROLE_MANAGE: 'role:manage',
+  // Reservada: não existe endpoint nem entidade ApiKey ainda (decisão CE-1
+  // mantém a chave única via .env). Fica no catálogo para o caminho de
+  // evolução descrito em FEEDBACKS-MELHORIA.md #6 — achado Qwen rodada 4
+  // (R12), sem uso concedido a nenhum papel por enquanto.
   APIKEY_MANAGE: 'apikey:manage',
 } as const;
 

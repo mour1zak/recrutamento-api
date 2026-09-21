@@ -6,6 +6,21 @@ exigência vire "promessa esquecida" — o próprio Qwen citou isso como risco.
 Marcar conforme for implementado; não avançar para os itens de "Gate Fase 3"
 sem os de "Passo 1" resolvidos.
 
+## Adendo rodada 4 (auditoria de código, não mais só schema) — REPROVADO → corrigido
+
+O primeiro código de aplicação auditado (módulo de auth) trouxe 5 achados
+críticos reproduzidos por execução real — ver
+`PARECER-QWEN-FASE2-AUTH-RODADA4.md` e `TRIAGEM-REVISOES-RODADA4.md` para
+o relato completo. Todos corrigidos e reverificados nesta rodada:
+
+- **Bypass de autenticação com segredo placeholder** — `src/config/env.validation.ts` agora recusa o boot se `JWT_SECRET`/`API_KEY` forem os valores do `.env.example`.
+- **Ordem dos guards quebrada** (`PermissionsGuard` rodava antes do `JwtAuthGuard`) — `JwtAuthGuard` virou global, com `@Public()` nas rotas de auth.
+- **Suíte e2e vermelha, README mentindo** — corrigida, `.env.test` versionado, 12 testes verdes.
+- **Rotação de refresh token não atômica** — `updateMany` condicional, provado com 10 requisições concorrentes.
+- **`deactivate()` sem chamador** — `UsersController` criado.
+
+Isso muda o status de dois itens abaixo (marcados com "🔄 rodada 4").
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
@@ -40,16 +55,15 @@ sem os de "Passo 1" resolvidos.
       usuários com o endpoint ainda não existe, mas o método de serviço já
       segue a regra desde já).
 - [x] Desativação de usuário (`isActive = false`) **revoga todos os
-      `RefreshToken` ativos**; fluxo de refresh revalida `isActive`. **Feito**
-      — `UsersService.deactivate()` roda os dois updates numa
-      `$transaction`; `AuthService.refresh()`/`JwtStrategy.validate()`
-      sempre passam por `findAuthenticatedById()`, que retorna `null` (→
-      `401`) se `isActive = false`. Teste manual completo: login → logout
-      revoga o refresh usado → reuso do mesmo token → `401` (confirmado via
-      curl). Teste específico de "desativar enquanto sessão está ativa"
-      ainda não automatizado — método existe e a leitura de `isActive` já
-      é respeitada, mas falta um teste demonstrando o caminho via
-      desativação (não só via logout).
+      `RefreshToken` ativos**; fluxo de refresh revalida `isActive`. 🔄
+      **rodada 4 — corrigido de verdade**: a auditoria Qwen (C5) provou que
+      `deactivate()` não tinha nenhum chamador (não existia controller de
+      usuários), então a alegação de "testado" na versão anterior deste
+      item não se sustentava. Criado `UsersController` (`PATCH
+      /users/:id/deactivate`, protegido por `user:manage`). Agora
+      **testado de ponta a ponta de verdade**: admin desativa → `204` →
+      `isActive=false` e refresh tokens revogados no banco → login do
+      usuário desativado → `401`.
 - [ ] `resumeDocument.ownerId === candidateId` validado no Service antes de
       aceitar uma candidatura (não é enforçável só por FK).
 - [ ] Regra de negócio escrita: `RESCHEDULED` sempre tem `rescheduledTo`
@@ -71,13 +85,31 @@ sem os de "Passo 1" resolvidos.
 - [x] Email normalizado (lowercase + trim) antes de checar unicidade/login.
       **Feito** — `normalizeEmail()` em `src/users/users.service.ts`,
       usado tanto no cadastro quanto no login.
-- [ ] Tabela de casos de teste para a política de precedência
+- [x] Tabela de casos de teste para a política de precedência
       401→401→403→404→409 (API key, JWT, permissão, dono do recurso, regra
-      de negócio) — decidir também se `401` inclui `WWW-Authenticate`.
-      **Parcial**: os casos de API key/JWT/400/409 já foram verificados
-      manualmente (ver relatório desta etapa); falta formalizar como
-      suíte de testes automatizados e decidir o `WWW-Authenticate`
-      (ainda não adicionado).
+      de negócio). 🔄 **rodada 4**: formalizado como suíte automatizada
+      (`test/auth.e2e-spec.ts`) — 401 sem API key, 401 sem JWT, 403 sem
+      permission key, 404 de recurso inexistente, 409 de email duplicado
+      (inclusive sob concorrência real). `WWW-Authenticate` no `401` ainda
+      **não** adicionado — fica como pendência menor (R do Qwen rodada 4,
+      "custo de uma linha").
+- [x] Guard de autorização funciona de ponta a ponta. 🔄 **rodada 4** (item
+      novo, não existia nesta lista): a auditoria provou que
+      `PermissionsGuard` rodava antes do `JwtAuthGuard` (guards globais
+      sempre rodam antes de guards de controller/rota), então toda rota
+      com `@Permissions()` retornaria `403` mesmo para quem tinha a
+      permissão — nunca detectado porque nenhuma rota usava isso ainda.
+      Corrigido: `JwtAuthGuard` também é global agora, na ordem
+      `[ApiKeyGuard, JwtAuthGuard, PermissionsGuard]`, com `@Public()`
+      isentando as rotas de auth. Provado com `PATCH /users/:id/deactivate`.
+- [x] Validação de ambiente no boot. 🔄 **rodada 4** (item novo): a
+      auditoria forjou um JWT válido usando o `JWT_SECRET` literal do
+      `.env.example` e autenticou como qualquer usuário — bypass total de
+      autenticação em qualquer deploy que esquecesse de trocar os
+      segredos. Corrigido: `src/config/env.validation.ts` (Joi) recusa o
+      boot se `JWT_SECRET`/`API_KEY` forem os placeholders do `.env.example`
+      ou iguais entre si. Provado: boot com o placeholder → crash
+      controlado, antes de qualquer rota existir.
 
 ## Gate Fase 3 (concorrência)
 
@@ -96,8 +128,17 @@ sem os de "Passo 1" resolvidos.
       rodadas anteriores), assertando as duas invariantes acima.
 - [ ] Qualquer `$queryRaw` usado no lock seleciona só as colunas
       estritamente necessárias — `omit` global não se aplica a SQL cru.
-- [ ] Erros do Prisma (`P2002`, `P2003`, `P2034`, `P2028`) mapeados
-      explicitamente para `409`/`400` no filtro global — nunca `500`.
+- [ ] Índice de expressão (ou `citext`) para `User.email` case-insensitive
+      no banco — hoje a normalização (`lowercase`+`trim`) só existe na
+      aplicação; um `INSERT` via SQL bruto (que esta fase já prevê) pode
+      criar `A@x.com` ao lado de `a@x.com` (achado Qwen rodada 4, R13).
+- [x] Erros do Prisma (`P2002`, `P2003`, `P2034`, `P2028`) mapeados
+      explicitamente para `409`/`400`/`404` no filtro global — nunca `500`.
+      **Adiantado da rodada 4** (achado R1, "corrigir antes da Fase 5" virou
+      "corrigido agora" porque já era alcançável em `POST /auth/register`
+      sem nenhuma concorrência real de vaga): `src/common/filters/
+      prisma-exception.filter.ts`. Provado com 5 registros simultâneos com
+      o mesmo email: 1×`201`, 4×`409`, zero `500`.
 
 ## Gate Nível B (só se/quando o endpoint de ADMIN editar permissões existir)
 

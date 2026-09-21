@@ -1,6 +1,6 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { SYSTEM_ROLES } from '../common/constants/permissions.constants.js';
+import { SYSTEM_ROLES, type PermissionKey } from '../common/constants/permissions.constants.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
 // select nomeado, sem password — mesmo padrão validado na auditoria do
@@ -52,11 +52,6 @@ export class UsersService {
   async createCandidate(data: { name: string; email: string; passwordHash: string }) {
     const email = normalizeEmail(data.email);
 
-    const existing = await this.prisma.user.findUnique({ where: { email } });
-    if (existing) {
-      throw new ConflictException('Já existe uma conta com este email.');
-    }
-
     const candidateRole = await this.prisma.role.findUnique({
       where: { name: SYSTEM_ROLES.CANDIDATE },
     });
@@ -67,6 +62,11 @@ export class UsersService {
       throw new Error('Papel CANDIDATE não encontrado — o seed foi executado?');
     }
 
+    // Sem checagem prévia de "email já existe" (achado Qwen rodada 4, R2):
+    // aquele padrão era check-then-create, com a mesma janela de corrida
+    // do C4. O `@@unique(email)` do banco já garante a regra; deixamos o
+    // Postgres recusar e o PrismaExceptionFilter global traduz o P2002
+    // para 409 — uma fonte de verdade, sem janela de corrida.
     const user = await this.prisma.user.create({
       data: {
         name: data.name,
@@ -116,7 +116,7 @@ export class UsersService {
       roleId: user.roleId,
       roleName: user.role.name,
       companyId: user.companyId,
-      permissions: user.role.rolePermissions.map((rp) => rp.permission.key as never),
+      permissions: user.role.rolePermissions.map((rp) => rp.permission.key as PermissionKey),
     };
   }
 }

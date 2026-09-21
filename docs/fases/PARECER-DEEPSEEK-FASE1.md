@@ -4,6 +4,14 @@
 > Conteúdo do DeepSeek, colado sem edição para manter o histórico de
 > revisão. A triagem (o que foi aceito, ajustado ou não) está em
 > `TRIAGEM-REVISOES-RODADA2.md`.
+>
+> **Correção registrada (achado Qwen rodada 4, R14):** este documento diz
+> "49 grants" (8 + 13 + 28) em três lugares abaixo. O número correto,
+> aplicado de fato no schema/seed, é **45** (8 + 13 + **24** — ADMIN não
+> recebe as 4 permissões exclusivas de candidato; ver
+> `TRIAGEM-REVISOES-RODADA2.md` e `CONDICOES-ENTRADA-FASE2.md`). Mantido o
+> texto original abaixo sem edição, para preservar o histórico do que foi
+> recebido de fato.
 
 ---
 

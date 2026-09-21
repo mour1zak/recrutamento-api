@@ -5,7 +5,18 @@ import type { PermissionKey } from '../constants/permissions.constants.js';
 import type { AuthenticatedUser } from '../types/authenticated-user.js';
 
 /**
- * Roda depois do JwtAuthGuard (precisa de `request.user` já preenchido).
+ * Precisa de `request.user` já preenchido pelo JwtAuthGuard. Isso só é
+ * garantido porque os dois são registrados como APP_GUARD globais em
+ * app.module.ts, NESTA ordem: [ApiKeyGuard, JwtAuthGuard,
+ * PermissionsGuard] — guards globais rodam antes de qualquer guard de
+ * controller/rota, na ordem em que aparecem no array de providers.
+ * CORREÇÃO (achado crítico Qwen rodada 4, C2): a versão anterior deste
+ * comentário afirmava esse comportamento sem que ele existisse de fato —
+ * o JwtAuthGuard só era aplicado por controller (@UseGuards), então rodava
+ * DEPOIS deste guard global, e toda rota com @Permissions() retornava 403
+ * mesmo para quem tinha a permissão. Nunca mude a ordem deste array sem
+ * revalidar isso com um teste e2e.
+ *
  * Só decide "o papel tem esta permission key" — 403 quando falta. Recurso
  * de terceiro (permissão existe, mas o recurso não é do usuário) é 404,
  * decidido no Service, não aqui (política registrada em

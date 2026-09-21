@@ -13,6 +13,12 @@ src/generated/
 .env
 .env.*
 !.env.example
+# Exceção deliberada (achado Qwen rodada 4, C3): .env.test só tem
+# credenciais de um banco de teste local descartável (recrutamento_test),
+# nunca dados reais — versionado para que `npm run test:e2e` funcione num
+# clone novo sem configuração manual. Nunca reaproveitar estes valores em
+# dev/produção.
+!.env.test
 
 # Uploads enviados por usuários em ambiente local (não é código-fonte)
 uploads/

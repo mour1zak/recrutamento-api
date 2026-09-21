@@ -234,6 +234,94 @@ por tempo com o obrigatório dos 5 dias.
 
 ---
 
+## 11. `crypto.scrypt` no lugar de `bcryptjs`
+
+**O quê:** trocar `bcryptjs` (puro JS) por `crypto.scrypt` da própria
+stdlib do Node para hash de senha.
+
+**Por quê:** achado da auditoria Qwen rodada 4 (medido: 72ms/operação para
+`bcryptjs` com 10 rounds nesta máquina). `scrypt` resolve três problemas de
+uma vez: (1) não depende de compilação nativa (era o motivo de termos
+trocado `bcrypt` nativo por `bcryptjs`), (2) não tem limite de 72 bytes —
+o pré-hash SHA-256 (`password.util.ts`) deixaria de ser necessário, (3) é
+*memory-hard*, mais resistente a ataques com hardware dedicado (GPU/ASIC)
+do que bcrypt.
+
+**Por quê não agora:** trocar o algoritmo de hash depois que já existem
+usuários com senha em bcrypt exige uma migração (rehash preguiçoso no
+próximo login, mesma técnica já documentada em `auth.service.ts` para o
+caso do `@MaxLength(72)`) — não é só trocar a função e seguir.
+
+**Custo estimado:** médio — a troca em si é simples, a migração de senhas
+existentes (mesmo sendo só dado de teste hoje) exige código de transição.
+
+**Status:** 🟡 Registrado. `bcryptjs` + pré-hash SHA-256 continua sendo a
+solução em produção nesta entrega — tecnicamente correta, só não é a mais
+performática possível.
+
+---
+
+## 12. Detecção de reuso de refresh token via família (`familyId`)
+
+**O quê:** adicionar `familyId` (ou `parentId`) em `RefreshToken`, de modo
+que apresentar um token **já revogado** (não só expirado) revogue **toda a
+família** de tokens daquela sessão, não só devolva `401`.
+
+**Por quê:** achado da auditoria Qwen rodada 4 (C4, nota complementar):
+token revogado sendo reapresentado é o sinal canônico de token roubado — a
+prática recomendada é invalidar a sessão inteira, não só recusar aquele uso.
+
+**Por quê agora é o momento de decidir:** o schema ainda não tem migration
+"cara" (poucas linhas de dado) — adicionar o campo agora é barato; depois
+de haver dados reais, mais caro.
+
+**Custo estimado:** baixo-médio — um campo a mais + lógica de revogação em
+cascata no `refresh()`.
+
+**Status:** 🟡 Decisão explícita de adiar, registrada por pedido da própria
+auditoria (não é obrigatório para a rodada 4, só precisa estar decidido por
+escrito).
+
+---
+
+## 13. Seed derivar o catálogo completo de `PERMISSIONS`, não só de `ROLE_PERMISSIONS`
+
+**O quê:** `prisma/seed.ts` hoje cria só as permissões que aparecem em
+`ROLE_PERMISSIONS` (a união dos papéis). Se alguém adicionar uma key nova
+em `PERMISSIONS` sem atribuí-la a nenhum papel ainda, ela nunca é criada no
+banco — e o dia em que um Guard passar a exigi-la, todo mundo recebe `403`
+silenciosamente, sem pista do motivo.
+
+**Por quê não corrigido já:** hoje a união de `ROLE_PERMISSIONS` bate
+exatamente com `PERMISSIONS` (28 = 28, verificado por execução na auditoria
+rodada 4) — o risco existe, mas não está manifestado.
+
+**Custo estimado:** baixo — trocar a fonte de `permissionKeys` no seed de
+`Object.values(ROLE_PERMISSIONS).flat()` para `Object.values(PERMISSIONS)`.
+
+**Status:** 🟡 Registrado (achado Qwen rodada 4, R11). Baixo risco atual,
+correção barata quando for feita.
+
+---
+
+## 14. CI mínimo (`.github/workflows`)
+
+**O quê:** pipeline `npm ci` → `prisma generate` → `lint` → `build` →
+`test` → `test:e2e` contra um Postgres de serviço.
+
+**Por quê:** achado da auditoria Qwen rodada 4 — é o que impede a suíte
+vermelha (C3) de se repetir sem ninguém notar. Hoje nada no processo
+detecta automaticamente uma suíte quebrada antes do próximo pedido de
+revisão externa.
+
+**Custo estimado:** baixo-médio — GitHub Actions com um serviço Postgres é
+um template padrão, mas precisa de ajuste para `.env.test`/segredos de CI.
+
+**Status:** 🟡 Registrado. Valioso, mas não bloqueia a Fase 2 — considerar
+para a Fase 5 (entrega final) se houver tempo.
+
+---
+
 _Este arquivo é vivo: novos itens entram aqui sempre que identificarmos algo
 tecnicamente correto para melhorar, mas que não deve competir por tempo com
 o obrigatório dos 5 dias._

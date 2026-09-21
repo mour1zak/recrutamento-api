@@ -30,17 +30,17 @@ deixamos isso implícito no código._
 |---|---|
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
-| Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟡 Infraestrutura pronta (RBAC dinâmico, `PermissionsGuard`, 45 grants no seed), ainda sem endpoint de negócio protegido por permission key pra exercitar de ponta a ponta |
-| CRUDs / gestão das entidades | ⬜ Não iniciado |
+| Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
+| CRUDs / gestão das entidades | 🟡 Só `PATCH /users/:id/deactivate` existe até aqui; demais entidades ainda não |
 | Consultas por relacionamento | ⬜ Não iniciado |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
 | Integração externa via `HttpService` (CEP/localização) | ⬜ Não iniciado |
 | Interceptor coerente | ⬜ Não iniciado |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
-| Tratamento de 400/401/403/404/409 | 🟡 400/401/409 demonstrados manualmente no fluxo de auth; 403/404 dependem de um endpoint com dono de recurso, ainda não existe |
+| Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
-| Testes obrigatórios (10 cenários do enunciado) | ⬜ Não iniciado |
+| Testes obrigatórios (10 cenários do enunciado) | 🟡 3 de 10 cobertos por teste automatizado (fluxo com sucesso, body inválido, ausência/token inválido, conflito de negócio — via `test/auth.e2e-spec.ts`); os demais (403/404 de terceiro, upload, integração externa, mudança de estado) dependem de módulos ainda não implementados |
 
 ### 2.2 Bônus (só depois do obrigatório)
 
@@ -64,6 +64,15 @@ todos ⬜ não iniciados.
   de papéis fixos em enum, incluindo endpoint de ADMIN para editar
   permissões de um papel em runtime (Nível B, decisão explícita de assumir
   o custo de tempo — ver `docs/fases/FASE-1-MODELAGEM.md` §5.1).
+- **Validação de ambiente no boot** (`src/config/env.validation.ts`): a
+  aplicação recusa subir se `JWT_SECRET`/`API_KEY` forem os valores de
+  exemplo do `.env.example` (ou iguais entre si) — fecha um bypass real de
+  autenticação encontrado na auditoria Qwen rodada 4 (qualquer deploy que
+  esquecesse de trocar os segredos aceitaria um JWT forjado com o segredo
+  público do repositório).
+- **Filtro global de exceções do Prisma**
+  (`src/common/filters/prisma-exception.filter.ts`): erro de unique/FK/
+  conflito de transação nunca vira `500` — mapeado para `400`/`404`/`409`.
 
 ### 2.4 Conscientemente fora do escopo
 
@@ -153,13 +162,33 @@ npm run start:prod
 
 ### 4.7 Testes
 
+Requer a migration e o seed aplicados no banco de **teste**
+(`recrutamento_test`, configurado em `.env.test` — já versionado com
+segredos dedicados só de teste, funciona em clone novo sem configuração
+manual):
+
+```bash
+DATABASE_URL="<a mesma URL do seu .env.test>" npx prisma migrate deploy
+NODE_ENV=test DATABASE_URL="<idem>" npx tsx prisma/seed.ts
+```
+
+Depois:
+
 ```bash
 npm test        # unitários
 npm run test:e2e
 ```
 
-_(Suíte de testes ainda não escrita — comandos existem e funcionam, mas
-sem specs de negócio até a Fase 2/5.)_
+**Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
+deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
+— isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
+e o teste não enviava a chave). Hoje: **12 testes automatizados, todos
+verdes** (`test/app.e2e-spec.ts`, `test/auth.e2e-spec.ts`,
+`src/app.controller.spec.ts`), cobrindo os cenários obrigatórios de auth
+(400/401/409, fluxo completo de registro/login/refresh/logout, e uma rota
+protegida por permission key). Os demais dos 10 cenários do enunciado
+(403/404 de dono de recurso, upload, integração externa, mudança de
+estado) só têm onde morar quando os módulos correspondentes existirem.
 
 ## 5. Endpoints
 

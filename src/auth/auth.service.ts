@@ -14,6 +14,14 @@ interface TokenPair {
   refreshToken: string;
 }
 
+// Hash bcrypt válido (de uma senha descartável, nunca usada de verdade) só
+// para gastar o mesmo tempo de CPU quando o email não existe. Corrige
+// achado da auditoria Qwen rodada 4 (P4, medido por execução): sem isso,
+// "usuário não existe" respondia em ~0ms e "senha errada" em ~72ms — a
+// mensagem de erro era genérica, mas o TEMPO não era, permitindo descobrir
+// quais emails estão cadastrados só medindo latência.
+const DUMMY_PASSWORD_HASH = '$2b$10$n0iH0FWwE10aw.LGHLHMOO6dsOxIqZ1YJOIzzuI1LE6zAnQ6fyN7y';
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -40,12 +48,16 @@ export class AuthService {
     const invalidCredentials = () => new UnauthorizedException('Email ou senha inválidos.');
 
     const userWithPassword = await this.usersService.findByEmailForLogin(dto.email);
-    if (!userWithPassword || !userWithPassword.isActive) {
-      throw invalidCredentials();
-    }
 
-    const passwordMatches = await verifyPassword(dto.password, userWithPassword.password);
-    if (!passwordMatches) {
+    // Sempre chama verifyPassword, exista o usuário ou não — contra um hash
+    // descartável quando não existe — para os dois caminhos custarem o
+    // mesmo tempo de CPU (ver DUMMY_PASSWORD_HASH acima).
+    const passwordMatches = await verifyPassword(
+      dto.password,
+      userWithPassword?.password ?? DUMMY_PASSWORD_HASH,
+    );
+
+    if (!userWithPassword || !userWithPassword.isActive || !passwordMatches) {
       throw invalidCredentials();
     }
 
@@ -60,11 +72,27 @@ export class AuthService {
 
   async refresh(rawRefreshToken: string) {
     const tokenHash = this.hashToken(rawRefreshToken);
-
-    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
     const invalid = () => new UnauthorizedException('Refresh token inválido ou expirado.');
 
+    const stored = await this.prisma.refreshToken.findUnique({ where: { tokenHash } });
     if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
+      throw invalid();
+    }
+
+    // Rotação atômica (corrige achado crítico Qwen rodada 4, C4): a versão
+    // anterior fazia um SELECT (checa revokedAt) seguido de um UPDATE
+    // separado — duas requisições concorrentes com o MESMO refresh token
+    // liam ambas `revokedAt = null` antes de qualquer uma escrever, e as
+    // duas emitiam um par novo (a mesma classe de bug do `filledCount`,
+    // lição nº 2 da avaliação anterior). Colocar `revokedAt: null` também
+    // no WHERE do UPDATE faz o Postgres decidir atomicamente: só uma
+    // requisição consegue revogar a linha (count = 1); a(s) outra(s)
+    // encontra(m) count = 0 e trata(m) como replay.
+    const { count } = await this.prisma.refreshToken.updateMany({
+      where: { id: stored.id, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (count === 0) {
       throw invalid();
     }
 
@@ -72,13 +100,6 @@ export class AuthService {
     if (!user) {
       throw invalid();
     }
-
-    // Rotação: o refresh token usado é revogado e um par novo é emitido —
-    // limita o dano de um refresh token roubado a um único uso.
-    await this.prisma.refreshToken.update({
-      where: { id: stored.id },
-      data: { revokedAt: new Date() },
-    });
 
     const tokens = await this.issueTokenPair(user.id);
     return { user: this.toPublicUser(user), ...tokens };

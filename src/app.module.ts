@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { PassportModule } from '@nestjs/passport';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
@@ -8,13 +9,24 @@ import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { ApiKeyGuard } from './common/guards/api-key.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
+import { envValidationSchema } from './config/env.validation.js';
+import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
+      // Falha o boot se alguém subir com os placeholders do .env.example
+      // (achado crítico Qwen rodada 4, C1 — bypass total de autenticação
+      // com o segredo público documentado no repositório).
+      validationSchema: envValidationSchema,
     }),
+    // Precisa estar aqui (não só dentro de AuthModule): o JwtAuthGuard é
+    // registrado como APP_GUARD abaixo, e guards globais são instanciados
+    // no injector do módulo onde aparecem no array de `providers`.
+    PassportModule.register({ defaultStrategy: 'jwt' }),
     PrismaModule,
     UsersModule,
     AuthModule,
@@ -22,13 +34,20 @@ import { PermissionsGuard } from './common/guards/permissions.guard.js';
   controllers: [AppController],
   providers: [
     AppService,
-    // Ordem importa: ApiKeyGuard (cliente conhecido) roda antes de
-    // qualquer JwtAuthGuard declarado por controller (que não é global —
-    // só rotas protegidas o usam). PermissionsGuard também não é global:
-    // só entra em vigor onde o handler tem @Permissions(...); sem essa
-    // metadata, ele deixa passar (ver PermissionsGuard.canActivate).
+    // Ordem importa e é a correção do achado crítico C2 (rodada 4): guards
+    // globais (APP_GUARD) rodam nesta ordem, antes de qualquer guard de
+    // controller/rota. ApiKeyGuard (cliente conhecido) → JwtAuthGuard
+    // (quem é o usuário, isento via @Public()) → PermissionsGuard (o papel
+    // tem a permission key). Antes desta correção, PermissionsGuard era
+    // global mas JwtAuthGuard só existia por controller — rodava depois,
+    // e toda rota com @Permissions() dava 403 mesmo para quem tinha a
+    // permissão.
     { provide: APP_GUARD, useClass: ApiKeyGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
+    // Corrige achado Qwen rodada 4 (R1): erro do Prisma (unique violado, FK
+    // inexistente, conflito de transação) nunca deve virar 500 cru.
+    { provide: APP_FILTER, useClass: PrismaExceptionFilter },
   ],
 })
 export class AppModule {}

@@ -3,8 +3,20 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 import { ROLE_PERMISSIONS, SYSTEM_ROLES } from '../src/common/constants/permissions.constants.js';
 import { hashPassword } from '../src/common/utils/password.util.js';
 
+// Corrige achado Qwen rodada 4 (R4): seed nunca roda contra produção, nem
+// por engano — reúne 3 problemas que o próprio projeto já tinha listado
+// como lições (segredo em log, segredo hardcoded, credencial privilegiada
+// fraca) num único script.
+if (process.env.NODE_ENV === 'production') {
+  throw new Error('Seed recusado: NODE_ENV=production. Este script cria usuários com senha de desenvolvimento, nunca rode contra produção.');
+}
+
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL! });
 const prisma = new PrismaClient({ adapter });
+
+// Vem de env, com fallback explícito só para conveniência local — nunca
+// impresso em log (ver função `main`, abaixo).
+const SEED_USER_PASSWORD = process.env.SEED_USER_PASSWORD ?? 'Senha@123';
 
 /**
  * Seed mínimo (RBAC + 1 usuário por papel) — o suficiente para testar
@@ -59,9 +71,9 @@ async function main() {
     }
   }
 
-  console.log('Seed: criando um usuário de cada papel (senha: "Senha@123" para todos)...');
+  console.log('Seed: criando um usuário de cada papel (senha definida via SEED_USER_PASSWORD, não impressa aqui)...');
 
-  const passwordHash = await hashPassword('Senha@123');
+  const passwordHash = await hashPassword(SEED_USER_PASSWORD);
 
   const admin = await prisma.user.upsert({
     where: { email: 'admin@recrutamento.test' },

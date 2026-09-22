@@ -1,0 +1,317 @@
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service.js';
+import { errorBody } from '../common/exceptions/error-body.util.js';
+import { isAdmin } from '../common/utils/role.util.js';
+import { PERMISSIONS } from '../common/constants/permissions.constants.js';
+import { ApplicationStatus, JobStatus, Prisma } from '../generated/prisma/client.js';
+import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
+import { CreateApplicationDto } from './dto/create-application.dto.js';
+import { UpdateApplicationStatusDto } from './dto/update-application-status.dto.js';
+import { WithdrawApplicationDto } from './dto/withdraw-application.dto.js';
+import { ListApplicationsQueryDto } from './dto/list-applications-query.dto.js';
+
+// Fluxo de avaliação (Fase 1, PARECER-DEEPSEEK-FASE1.md, mais o enum do
+// schema). Terminal: HIRED, REJECTED, WITHDRAWN — nenhuma saída. WITHDRAWN
+// só é alcançável pela rota dedicada `/withdraw` (nunca aparece como
+// destino de nenhuma transição aqui — o candidato desiste, o recrutador
+// não "desiste por ele").
+const VALID_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
+  PENDING: [ApplicationStatus.UNDER_REVIEW, ApplicationStatus.REJECTED],
+  UNDER_REVIEW: [ApplicationStatus.INTERVIEW, ApplicationStatus.REJECTED],
+  INTERVIEW: [ApplicationStatus.OFFERED, ApplicationStatus.REJECTED],
+  OFFERED: [ApplicationStatus.HIRED, ApplicationStatus.REJECTED],
+  HIRED: [],
+  REJECTED: [],
+  WITHDRAWN: [],
+};
+
+// Mesma lista positiva usada em CandidateProfile (achado Qwen rodada 10,
+// C2) — reaproveitada aqui de propósito: é a mesma pergunta de negócio
+// ("este status representa avaliação em andamento?"), então usar a mesma
+// forma (lista positiva, não negação) evita reintroduzir o mesmo bug numa
+// terceira leitura condicional de PII.
+const STATUSES_WITH_FULL_VISIBILITY: ApplicationStatus[] = [
+  ApplicationStatus.UNDER_REVIEW,
+  ApplicationStatus.INTERVIEW,
+  ApplicationStatus.OFFERED,
+  ApplicationStatus.HIRED,
+];
+
+const TERMINAL_STATUSES: ApplicationStatus[] = [ApplicationStatus.HIRED, ApplicationStatus.REJECTED, ApplicationStatus.WITHDRAWN];
+
+const APPLICATION_INCLUDE = {
+  job: { select: { id: true, title: true, companyId: true, status: true, vacancies: true, filledCount: true } },
+  candidate: { select: { id: true, name: true } },
+  resumeDocument: { select: { id: true, filename: true, mimeType: true, sizeBytes: true } },
+} as const;
+
+type ApplicationWithRelations = Prisma.ApplicationGetPayload<{ include: typeof APPLICATION_INCLUDE }>;
+
+function applicationNotFound() {
+  return new NotFoundException(errorBody(404, 'application_not_found', 'Candidatura não encontrada.'));
+}
+
+function toFullResponse(application: ApplicationWithRelations) {
+  return application;
+}
+
+async function toReducedResponse(prisma: PrismaService, application: ApplicationWithRelations) {
+  // Achado Fase 1 (Pergunta 2 do DeepSeek): antes de a candidatura sair de
+  // PENDING, o recrutador vê só o mínimo pra triagem — cobertura +
+  // documento (o candidato mandou de propósito pra essa vaga), mais
+  // nome/headline/skills do perfil (mesma redução de CandidateProfile).
+  const profile = await prisma.candidateProfile.findUnique({
+    where: { userId: application.candidateId },
+    select: { headline: true, skills: true },
+  });
+  return {
+    id: application.id,
+    jobId: application.jobId,
+    status: application.status,
+    coverLetter: application.coverLetter,
+    resumeDocument: application.resumeDocument,
+    createdAt: application.createdAt,
+    candidate: {
+      id: application.candidate.id,
+      name: application.candidate.name,
+      headline: profile?.headline ?? null,
+      skills: profile?.skills ?? [],
+    },
+  };
+}
+
+@Injectable()
+export class ApplicationsService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async create(jobId: number, dto: CreateApplicationDto, currentUser: AuthenticatedUser) {
+    const job = await this.prisma.job.findUnique({ where: { id: jobId }, include: { company: { select: { isActive: true } } } });
+    // Mesma regra de visibilidade pública usada em JobsService.findOne():
+    // vaga inexistente OU empresa desativada não são distinguíveis por
+    // fora — as duas viram 404 (a candidatura nunca "descobre" uma
+    // empresa desativada por diferença no formato do erro).
+    if (!job || !job.company.isActive) {
+      throw applicationJobNotFound();
+    }
+    if (job.status !== JobStatus.OPEN) {
+      throw new ConflictException(errorBody(409, 'job_not_open', 'Esta vaga não está aberta para candidaturas.'));
+    }
+
+    if (dto.resumeDocumentId !== undefined) {
+      await this.assertOwnDocumentOrThrow(dto.resumeDocumentId, currentUser.id);
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const application = await tx.application.create({
+          data: {
+            jobId,
+            candidateId: currentUser.id,
+            coverLetter: dto.coverLetter,
+            resumeDocumentId: dto.resumeDocumentId,
+          },
+          include: APPLICATION_INCLUDE,
+        });
+        await tx.applicationStatusHistory.create({
+          data: { applicationId: application.id, fromStatus: null, toStatus: ApplicationStatus.PENDING, changedById: currentUser.id },
+        });
+        return application;
+      });
+    } catch (error) {
+      // Regra obrigatória do enunciado: candidatura duplicada proibida.
+      // `@@unique([candidateId, jobId])` garante a regra mesmo sob
+      // corrida (dois cliques do mesmo candidato na mesma vaga); aqui só
+      // traduzimos o `P2002` pro formato de erro do projeto.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new ConflictException(errorBody(409, 'candidatura_duplicada', 'Você já se candidatou a esta vaga.'));
+      }
+      throw error;
+    }
+  }
+
+  private async assertOwnDocumentOrThrow(documentId: number, candidateId: number): Promise<void> {
+    // Pendência registrada desde a Fase 1 (CONDICOES-ENTRADA-FASE2.md):
+    // `resumeDocument.ownerId === candidateId` não é enforçável só pela FK
+    // — sem esta checagem, um candidato poderia anexar à própria
+    // candidatura um documento de OUTRO usuário só sabendo o id (IDOR).
+    const document = await this.prisma.document.findUnique({ where: { id: documentId }, select: { ownerId: true } });
+    if (!document || document.ownerId !== candidateId) {
+      throw new BadRequestException(errorBody(400, 'resume_document_invalido', 'resumeDocumentId inválido ou não pertence a você.'));
+    }
+  }
+
+  async findMine(currentUser: AuthenticatedUser, query: ListApplicationsQueryDto) {
+    const where: Prisma.ApplicationWhereInput = {
+      candidateId: currentUser.id,
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [total, data] = await Promise.all([
+      this.prisma.application.count({ where }),
+      this.prisma.application.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, include: APPLICATION_INCLUDE }),
+    ]);
+    return { data, page, limit, total };
+  }
+
+  async findForJob(jobId: number, currentUser: AuthenticatedUser, query: ListApplicationsQueryDto) {
+    const job = await this.prisma.job.findUnique({ where: { id: jobId }, select: { companyId: true } });
+    // Mesmo padrão anti-enumeração de `JobsService`: vaga fora do escopo
+    // do recrutador é 404, nunca 403 (não confirma nem nega existência).
+    if (!job || (!isAdmin(currentUser) && job.companyId !== currentUser.companyId)) {
+      throw applicationJobNotFound();
+    }
+
+    const where: Prisma.ApplicationWhereInput = { jobId, ...(query.status ? { status: query.status } : {}) };
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [total, data] = await Promise.all([
+      this.prisma.application.count({ where }),
+      this.prisma.application.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, include: APPLICATION_INCLUDE }),
+    ]);
+    return { data, page, limit, total };
+  }
+
+  async findOne(id: number, currentUser: AuthenticatedUser) {
+    // Sem `@Permissions()` no controller (o guard só faz E, esta rota
+    // precisa de OU) — checa aqui se pelo menos uma das três keys que dão
+    // acesso a este endpoint está presente, no mesmo formato de 403 que o
+    // guard usaria.
+    const hasAnyReadPermission =
+      currentUser.permissions.includes(PERMISSIONS.APPLICATION_READ_OWN) ||
+      currentUser.permissions.includes(PERMISSIONS.APPLICATION_READ_JOB) ||
+      currentUser.permissions.includes(PERMISSIONS.APPLICATION_READ_ANY);
+    if (!hasAnyReadPermission) {
+      throw new ForbiddenException(errorBody(403, 'permission_denied', 'Você não tem permissão para executar esta ação.'));
+    }
+
+    const application = await this.prisma.application.findUnique({ where: { id }, include: APPLICATION_INCLUDE });
+    if (!application) {
+      throw applicationNotFound();
+    }
+
+    if (application.candidateId === currentUser.id || isAdmin(currentUser)) {
+      return toFullResponse(application);
+    }
+
+    // RECRUITER: só enxerga candidatura de vaga da própria empresa —
+    // fora disso, 404 (mesma política anti-enumeração do resto do
+    // projeto, nunca 403).
+    if (application.job.companyId !== currentUser.companyId) {
+      throw applicationNotFound();
+    }
+    return STATUSES_WITH_FULL_VISIBILITY.includes(application.status)
+      ? toFullResponse(application)
+      : toReducedResponse(this.prisma, application);
+  }
+
+  async updateStatus(id: number, dto: UpdateApplicationStatusDto, currentUser: AuthenticatedUser) {
+    const application = await this.findScopedForRecruiterOrThrow(id, currentUser);
+
+    const allowed = VALID_TRANSITIONS[application.status];
+    if (!allowed.includes(dto.status)) {
+      throw new BadRequestException(
+        errorBody(400, 'invalid_status_transition', `Não é possível mudar de "${application.status}" para "${dto.status}".`),
+      );
+    }
+
+    if (dto.status === ApplicationStatus.HIRED) {
+      return this.hireWithCapacityCheck(application, dto, currentUser);
+    }
+
+    // Mesmo primitivo já provado em Auth (refresh) e Jobs (updateStatus):
+    // escrita condicionada ao estado lido — se outra transição já mudou o
+    // status entre a leitura e esta escrita, `count === 0` vira `409` em
+    // vez de aplicar por cima.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.application.updateMany({ where: { id, status: application.status }, data: { status: dto.status } });
+      if (updated.count > 0) {
+        await tx.applicationStatusHistory.create({
+          data: { applicationId: id, fromStatus: application.status, toStatus: dto.status, changedById: currentUser.id, note: dto.reason },
+        });
+      }
+      return updated;
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        errorBody(409, 'application_status_changed_concurrently', 'O status da candidatura mudou antes que esta operação fosse aplicada. Busque o estado atual (GET) antes de tentar de novo.'),
+      );
+    }
+    return this.prisma.application.findUniqueOrThrow({ where: { id }, include: APPLICATION_INCLUDE });
+  }
+
+  // Regra de concorrência real (Fase 3): duas contratações simultâneas na
+  // mesma vaga não podem, juntas, ultrapassar `vacancies`. O `UPDATE ...
+  // WHERE filledCount < vacancies` do Postgres resolve isso sozinho — a
+  // segunda transação a chegar reavalia a condição contra o valor JÁ
+  // incrementado pela primeira (lock de linha implícito do UPDATE), sem
+  // precisar de isolamento SERIALIZABLE nem `SELECT ... FOR UPDATE`
+  // explícito. As duas escritas (vaga + candidatura) ficam na mesma
+  // transação: se a segunda falhar (`count === 0`), a primeira também
+  // desfaz — lançar dentro do callback do Prisma reverte a transação.
+  private async hireWithCapacityCheck(application: ApplicationWithRelations, dto: UpdateApplicationStatusDto, currentUser: AuthenticatedUser) {
+    return this.prisma.$transaction(async (tx) => {
+      const jobUpdate = await tx.job.updateMany({
+        where: { id: application.jobId, filledCount: { lt: application.job.vacancies } },
+        data: { filledCount: { increment: 1 } },
+      });
+      if (jobUpdate.count === 0) {
+        throw new ConflictException(errorBody(409, 'no_vacancies_left', `A vaga já preencheu todas as ${application.job.vacancies} posições.`));
+      }
+      const appUpdate = await tx.application.updateMany({
+        where: { id: application.id, status: application.status },
+        data: { status: ApplicationStatus.HIRED },
+      });
+      if (appUpdate.count === 0) {
+        throw new ConflictException(
+          errorBody(409, 'application_status_changed_concurrently', 'O status da candidatura mudou antes que esta operação fosse aplicada. Busque o estado atual (GET) antes de tentar de novo.'),
+        );
+      }
+      await tx.applicationStatusHistory.create({
+        data: { applicationId: application.id, fromStatus: application.status, toStatus: ApplicationStatus.HIRED, changedById: currentUser.id, note: dto.reason },
+      });
+      return tx.application.findUniqueOrThrow({ where: { id: application.id }, include: APPLICATION_INCLUDE });
+    });
+  }
+
+  async withdraw(id: number, dto: WithdrawApplicationDto, currentUser: AuthenticatedUser) {
+    const application = await this.prisma.application.findUnique({ where: { id } });
+    // Só o dono pode desistir da própria candidatura — outro candidato
+    // tentando isso é tratado como "não encontrada" (nunca revela que a
+    // candidatura existe e é de outra pessoa).
+    if (!application || application.candidateId !== currentUser.id) {
+      throw applicationNotFound();
+    }
+    if (TERMINAL_STATUSES.includes(application.status)) {
+      throw new ConflictException(errorBody(409, 'application_ja_encerrada', 'Esta candidatura já está em um status final e não pode ser retirada.'));
+    }
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.application.updateMany({ where: { id, status: application.status }, data: { status: ApplicationStatus.WITHDRAWN } });
+      if (updated.count > 0) {
+        await tx.applicationStatusHistory.create({
+          data: { applicationId: id, fromStatus: application.status, toStatus: ApplicationStatus.WITHDRAWN, changedById: currentUser.id, note: dto.reason },
+        });
+      }
+      return updated;
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        errorBody(409, 'application_status_changed_concurrently', 'O status da candidatura mudou antes que esta operação fosse aplicada. Busque o estado atual (GET) antes de tentar de novo.'),
+      );
+    }
+    return this.prisma.application.findUniqueOrThrow({ where: { id }, include: APPLICATION_INCLUDE });
+  }
+
+  private async findScopedForRecruiterOrThrow(id: number, currentUser: AuthenticatedUser) {
+    const application = await this.prisma.application.findUnique({ where: { id }, include: APPLICATION_INCLUDE });
+    if (!application || (!isAdmin(currentUser) && application.job.companyId !== currentUser.companyId)) {
+      throw applicationNotFound();
+    }
+    return application;
+  }
+}
+
+function applicationJobNotFound() {
+  return new NotFoundException(errorBody(404, 'job_not_found', 'Vaga não encontrada.'));
+}

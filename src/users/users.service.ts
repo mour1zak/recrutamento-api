@@ -1,7 +1,21 @@
 import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { errorBody } from '../common/exceptions/error-body.util.js';
 import { PERMISSIONS, SYSTEM_ROLES, type PermissionKey } from '../common/constants/permissions.constants.js';
+import { JobStatus, Prisma } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
+import type { ListUsersQueryDto } from './dto/list-users-query.dto.js';
+
+const USER_SUMMARY_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  isActive: true,
+  roleId: true,
+  companyId: true,
+  createdAt: true,
+  role: { select: { name: true } },
+} as const;
 
 const KNOWN_PERMISSION_KEYS = new Set<string>(Object.values(PERMISSIONS));
 // Achado Qwen rodada 6 (ressalva 10): sem isso, uma key órfã no banco loga
@@ -177,6 +191,95 @@ export class UsersService {
       throw new NotFoundException('Usuário não encontrado.');
     }
     return this.prisma.user.update({ where: { id: targetId }, data: { isActive: true } });
+  }
+
+  // Rotas novas da Fase 4 (mapa DeepSeek §7) — usam o formato de erro
+  // estruturado (`errorBody`), diferente de `deactivate`/`reactivate`
+  // acima: aquelas duas já passaram por auditoria fechada com o formato
+  // antigo (decisão registrada: não reabrir escopo já fechado); estas
+  // quatro são rotas novas, sem histórico de auditoria pra preservar,
+  // então seguem o padrão adotado a partir de `Companies`.
+  async findAll(query: ListUsersQueryDto) {
+    const where: Prisma.UserWhereInput = {
+      ...(query.role ? { role: { name: query.role } } : {}),
+      ...(query.companyId !== undefined ? { companyId: query.companyId } : {}),
+      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
+    };
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const [total, data] = await Promise.all([
+      this.prisma.user.count({ where }),
+      this.prisma.user.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { id: 'asc' }, select: USER_SUMMARY_SELECT }),
+    ]);
+    return { data, page, limit, total };
+  }
+
+  async findOne(id: number) {
+    const user = await this.prisma.user.findUnique({ where: { id }, select: USER_SUMMARY_SELECT });
+    if (!user) {
+      throw new NotFoundException(errorBody(404, 'user_not_found', 'Usuário não encontrado.'));
+    }
+    return user;
+  }
+
+  async updateCompany(id: number, companyId: number | null) {
+    const user = await this.prisma.user.findUnique({ where: { id }, include: { role: true } });
+    if (!user) {
+      throw new NotFoundException(errorBody(404, 'user_not_found', 'Usuário não encontrado.'));
+    }
+    // Regra do DeepSeek (mapa §7): só RECRUITER tem empresa própria —
+    // CANDIDATE/ADMIN com `companyId` não fazem sentido no resto do
+    // domínio (Jobs/Applications decidem escopo por `companyId` só pra
+    // RECRUITER).
+    if (user.role.name !== SYSTEM_ROLES.RECRUITER) {
+      throw new ConflictException(errorBody(409, 'usuario_nao_e_recrutador', 'Só usuários RECRUITER podem ter empresa associada.'));
+    }
+    if (companyId !== null) {
+      const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+      if (!company) {
+        throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
+      }
+    }
+    return this.prisma.user.update({ where: { id }, data: { companyId }, select: USER_SUMMARY_SELECT });
+  }
+
+  async updateRole(id: number, roleId: number) {
+    const user = await this.prisma.user.findUnique({ where: { id }, include: { role: true } });
+    if (!user) {
+      throw new NotFoundException(errorBody(404, 'user_not_found', 'Usuário não encontrado.'));
+    }
+    const newRole = await this.prisma.role.findUnique({ where: { id: roleId } });
+    if (!newRole) {
+      throw new NotFoundException(errorBody(404, 'role_not_found', 'Papel não encontrado.'));
+    }
+    if (user.roleId === newRole.id) {
+      return this.prisma.user.findUniqueOrThrow({ where: { id }, select: USER_SUMMARY_SELECT });
+    }
+
+    // Invariante do DeepSeek (mapa §7, exemplo dado): RECRUITER com vagas
+    // ainda em andamento não pode virar outro papel sem deixar essas
+    // vagas "órfãs" de dono operacional.
+    if (user.role.name === SYSTEM_ROLES.RECRUITER && newRole.name !== SYSTEM_ROLES.RECRUITER) {
+      const activeJobs = await this.prisma.job.count({
+        where: { createdById: id, status: { in: [JobStatus.DRAFT, JobStatus.OPEN, JobStatus.PAUSED] } },
+      });
+      if (activeJobs > 0) {
+        throw new ConflictException(
+          errorBody(409, 'recrutador_com_vagas_ativas', `Este RECRUITER tem ${activeJobs} vaga(s) ainda em andamento — reatribua ou encerre antes de mudar o papel.`),
+        );
+      }
+    }
+    // Mesma trava de último admin de `deactivate()` (rodada 5, N1),
+    // aplicada aqui porque trocar o PAPEL de um admin tem o mesmo efeito
+    // líquido de desativá-lo enquanto admin.
+    if (user.role.name === SYSTEM_ROLES.ADMIN && newRole.name !== SYSTEM_ROLES.ADMIN && user.isActive) {
+      const activeAdmins = await this.prisma.user.count({ where: { isActive: true, role: { name: SYSTEM_ROLES.ADMIN } } });
+      if (activeAdmins <= 1) {
+        throw new ConflictException(errorBody(409, 'last_active_admin', 'Não é possível mudar o papel do último administrador ativo.'));
+      }
+    }
+
+    return this.prisma.user.update({ where: { id }, data: { roleId }, select: USER_SUMMARY_SELECT });
   }
 
   private toAuthenticatedUser(user: {

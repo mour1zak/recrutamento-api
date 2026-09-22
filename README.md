@@ -13,15 +13,20 @@
 > mais amplo: matriz completa de status, cross-tenant, ciclo desativar/
 > reativar). Achado novo da Rodada 11 (contrato de CEP inválido vs. falha
 > de rede, especificado desde a Fase 1 e nunca implementado) também
-> corrigido. Auth completo, RBAC
-> dinâmico de ponta a ponta, filtro global de exceções, integração
-> externa de CEP obrigatória do enunciado. **79 testes automatizados
-> verdes** — 9 dos 10 cenários obrigatórios de teste já cobertos. O
-> DeepSeek já entregou o mapa dos 41 endpoints do restante do domínio
-> (Application/Interview/Document/Users/RBAC Nível B) — implementação em
-> andamento. Este README é atualizado a cada fase concluída — documento
-> histórico da avaliação, não tarefa de última
-> hora.
+> corrigido. **Fase 4 implementada nesta rodada** (Application, Interview,
+> Document, gestão de Users e RBAC Nível B — os 41 endpoints do mapa do
+> DeepSeek), sob orçamento de tempo apertado (últimas 4h de produção):
+> auto-revisão aplicando os mesmos padrões já validados nas rodadas
+> anteriores (escopo por empresa, `updateMany` condicional pra
+> concorrência real, 404 anti-enumeração, `reason` estruturado), **ainda
+> sem rodada de auditoria do Qwen** — registrado como pendência explícita,
+> não como "fechado". Auth completo, RBAC dinâmico de ponta a ponta,
+> filtro global de exceções, integração externa de CEP obrigatória do
+> enunciado, upload de documento com validação de MIME/tamanho.
+> **137 testes automatizados verdes** (6 unitários + 131 e2e) — **os 10
+> dos 10 cenários obrigatórios de teste** do enunciado cobertos. Este
+> README é atualizado a cada fase concluída — documento histórico da
+> avaliação, não tarefa de última hora.
 
 ## 1. Objetivo
 
@@ -47,16 +52,16 @@ deixamos isso implícito no código._
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
-| CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate), `Company` (CRUD completo), `Job` (CRUD + transições de status) e `CandidateProfile` (leitura/atualização com visibilidade condicional) implementados; `Application`/`Interview`/`Document` ainda não |
-| Consultas por relacionamento | 🟡 `GET /jobs*` já traz `company:{id,name}`; visibilidade de `CandidateProfile` atravessa `Application → Job → Company` (achado Qwen rodada 10 — estava marcado errado como "não iniciado") |
-| Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
-| Upload de currículo/documento | ⬜ Não iniciado |
+| CRUDs / gestão das entidades | 🟢 `User` (deactivate/reactivate/company/role + listagem), `Company`, `Job`, `CandidateProfile`, `Application`, `Interview` e `Document` (upload/leitura) implementados — os 7 do enunciado |
+| Consultas por relacionamento | 🟢 `GET /jobs*` traz `company`; `CandidateProfile`/`Document` atravessam `Application → Job → Company`; `Interview` atravessa `Application → Job` |
+| Fluxo de estados do domínio (Job, Application, Interview) | 🟢 `Job` (rodada 8/9), `Application` (`PENDING→...→HIRED`/`REJECTED`/`WITHDRAWN`, com histórico em `ApplicationStatusHistory`) e `Interview` (`SCHEDULED→COMPLETED/CANCELED/NO_SHOW/RESCHEDULED`, reagendamento cria novo registro) implementados e testados |
+| Upload de currículo/documento | 🟢 `POST /documents` (multipart, MIME whitelist + limite de 5MB), `GET /documents/:id` com escopo condicional (dono, ou recrutador com candidatura `UNDER_REVIEW`+) |
 | Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado desde a Rodada 11: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado`, achado Qwen N1 — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta) |
 | Interceptor coerente | ⬜ Não iniciado |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
-| Testes obrigatórios (10 cenários do enunciado) | 🟡 9 de 10 cobertos por teste automatizado: #1 fluxo com sucesso, #2 body inválido, #3 ausência/token inválido, #4 sem permissão, #5 recurso inexistente, #6 conflito de negócio (`test/auth.e2e-spec.ts`, `test/companies.e2e-spec.ts`, `test/jobs.e2e-spec.ts`), #7 acesso a recurso de terceiro (recrutador de uma empresa tentando ler/alterar vaga de outra, `test/jobs.e2e-spec.ts`), #9 integração externa funcionando e falhando de forma controlada (CEP real, sem mock), #10 fluxo completo de mudança de estado (`DRAFT→OPEN→FILLED`, `test/jobs.e2e-spec.ts`). Falta só: #8 upload válido/inválido (depende de `Document`, ainda não implementado) |
+| Testes obrigatórios (10 cenários do enunciado) | 🟢 **10 de 10** cobertos por teste automatizado: #1 fluxo com sucesso, #2 body inválido, #3 ausência/token inválido, #4 sem permissão, #5 recurso inexistente, #6 conflito de negócio, #7 acesso a recurso de terceiro (recrutador de uma empresa tentando ler/alterar vaga/candidatura/entrevista de outra), #8 upload válido/inválido (`test/documents.e2e-spec.ts` — MIME e tamanho), #9 integração externa funcionando e falhando de forma controlada (CEP real, sem mock), #10 fluxo completo de mudança de estado (`DRAFT→OPEN→FILLED` em Job, `PENDING→...→HIRED` em Application) |
 
 ### 2.2 Bônus (só depois do obrigatório)
 
@@ -270,30 +275,35 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **79 testes automatizados, todos
-verdes** (75 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+e o teste não enviava a chave). Hoje: **137 testes automatizados, todos
+verdes** (131 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
-`test/candidate-profile.e2e-spec.ts` (19 testes, incluindo escopo
-cross-tenant, transições `REJECTED`/`WITHDRAWN`/`INTERVIEW`/`OFFERED`/
-`HIRED`, empresa desativada e concorrência em `upsert`), 4 unitários em
-`src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts`),
-cobrindo os cenários obrigatórios de auth (400/401/409, fluxo completo de
-registro/login/refresh/logout, uma rota protegida por permission key, e a
-trava de último administrador sob concorrência real — 8 admins
-temporários, 4 pares de desativação mútua simultânea, nunca `500`), o
-CRUD completo de `Company` e `Job` (403/404/409 com `reason` estruturado,
-isolamento entre empresas testado com o usuário real do seed, corrida de
-transição de status testada com `Promise.all` — 10 rodadas seguidas,
-asserção baseada no invariante real, não em quem vence a corrida), a
-visibilidade condicional de `CandidateProfile` (reduzido/completo
-conforme o status real de uma `Application`, nunca `403`), e a
-integração externa de CEP funcionando e falhando de forma controlada
-(contra o ViaCEP real, sem mock, para os cenários e2e — o único mock do
-projeto é o `HttpService` no teste unitário do `CepService`, pra provocar
-de forma determinística os três resultados do contrato discriminado:
-`ok`/`invalid`/`unavailable`, achado Qwen rodada 11). 9 dos 10
-cenários obrigatórios do enunciado já cobertos (ver §2.1); falta só #8
-(upload), que depende de `Document`, ainda não implementado.
+`test/candidate-profile.e2e-spec.ts` + `test/applications.e2e-spec.ts` +
+`test/interviews.e2e-spec.ts` + `test/documents.e2e-spec.ts` +
+`test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts`, 6 unitários em
+`src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts` +
+`src/roles/roles.service.spec.ts`), cobrindo os cenários obrigatórios de
+auth (400/401/409, fluxo completo de registro/login/refresh/logout, uma
+rota protegida por permission key, e a trava de último administrador sob
+concorrência real — 8 admins temporários, 4 pares de desativação mútua
+simultânea, nunca `500`), o CRUD completo de `Company`/`Job` (403/404/409
+com `reason` estruturado, isolamento entre empresas testado com o
+usuário real do seed, corrida de transição de status testada com
+`Promise.all`), a visibilidade condicional de `CandidateProfile`
+(reduzido/completo conforme o status real de uma `Application`, nunca
+`403`), a integração externa de CEP funcionando e falhando de forma
+controlada (contra o ViaCEP real, sem mock, para os cenários e2e — o
+único mock do projeto é o `HttpService` no teste unitário do
+`CepService`, pra provocar de forma determinística os três resultados do
+contrato discriminado: `ok`/`invalid`/`unavailable`, achado Qwen rodada
+11), a regra obrigatória de candidatura duplicada e vaga inativa
+(`test/applications.e2e-spec.ts`), a concorrência real de contratação
+(duas `HIRED` simultâneas na última vaga — `Promise.all`, exatamente uma
+vence, `reason: "no_vacancies_left"` na outra, nunca `5xx`), o contrato
+de `RESCHEDULED` de `Interview` (`201` com a nova entrevista, original
+vira `RESCHEDULED`), e o upload de documento com MIME/tamanho inválidos
+(`test/documents.e2e-spec.ts`, cenário obrigatório #8). **10 dos 10**
+cenários obrigatórios do enunciado cobertos (ver §2.1).
 
 ## 5. Endpoints
 
@@ -325,6 +335,26 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `GET` | `/candidates/me` | JWT + permission `candidate-profile:read` | — | `200`; `404` perfil ainda não criado |
 | `PATCH` | `/candidates/me` | JWT + permission `candidate-profile:update:own` | `{headline?, summary?, phone?, cep?, skills?}` | `200` (upsert — cria na primeira chamada); `400` DTO/CEP |
 | `GET` | `/candidates/:userId` | JWT + permission `candidate-profile:read` | — | `200` completo (dono/ADMIN, ou RECRUITER com candidatura em `UNDER_REVIEW`/`INTERVIEW`/`OFFERED`/`HIRED`) ou reduzido (RECRUITER só com candidatura `PENDING`/`REJECTED`/`WITHDRAWN` — achado Qwen rodada 10, C2: lista positiva, não "diferente de `PENDING`"); `404` não é candidato, sem relação, empresa do recrutador desativada, ou fora do escopo |
+| `POST` | `/jobs/:jobId/applications` | JWT + permission `application:create` | `{coverLetter?, resumeDocumentId?}` | `201`; `400` DTO/`resumeDocumentId` não pertence a você; `404` vaga inexistente ou empresa inativa; `409` candidatura duplicada (`reason: "candidatura_duplicada"`) ou vaga não `OPEN` (`reason: "job_not_open"`) |
+| `GET` | `/applications/me` | JWT + permission `application:read:own` | — (query `?status&page&limit`) | `200` só as do `@CurrentUser()` |
+| `GET` | `/jobs/:jobId/applications` | JWT + permission `application:read:job` | — (query `?status&page&limit`) | `200`; `404` vaga fora do escopo (empresa diferente) |
+| `GET` | `/applications/:id` | JWT (sem `@Permissions()` — precisa de OU entre `read:own`/`read:job`/`read:any`, decidido no Service) | — | `200` completo (dono/ADMIN, ou recrutador com status `UNDER_REVIEW`+) ou reduzido (recrutador com `PENDING`); `403` nenhuma das 3 keys; `404` fora do escopo |
+| `PATCH` | `/applications/:id/status` | JWT + permission `application:status:update` | `{status, reason?}` | `200`; `400` transição inválida; `404` fora do escopo; `409` `HIRED` sem vaga disponível (`reason: "no_vacancies_left"`) ou mudança concorrente (`reason: "application_status_changed_concurrently"`) |
+| `PATCH` | `/applications/:id/withdraw` | JWT + permission `application:withdraw:own` | `{reason?}` | `200`; `404` não é o dono; `409` candidatura já em status final (`reason: "application_ja_encerrada"`) |
+| `POST` | `/applications/:applicationId/interviews` | JWT + permission `interview:create` | `{scheduledAt, interviewerId?}` | `201`; `400` DTO; `404` candidatura fora do escopo; `409` candidatura não está em `INTERVIEW` (`reason: "application_not_in_interview_stage"`) |
+| `GET` | `/applications/:applicationId/interviews` | JWT + permission `interview:read` | — | `200`; `404` fora do escopo |
+| `GET` | `/interviews/:id` | JWT + permission `interview:read` | — | `200`; `404` fora do escopo |
+| `PATCH` | `/interviews/:id` | JWT + permission `interview:update` | `{status?, feedback?, scheduledAt?}` | `200` (edição normal) ou **`201` com a NOVA entrevista** quando `status: "RESCHEDULED"` (a original vira `RESCHEDULED`, contrato do DeepSeek); `400` `scheduledAt` ausente no reagendamento; `404` fora do escopo; `409` entrevista já em status final |
+| `POST` | `/documents` | JWT + permission `document:upload:own` | `multipart/form-data`: `file` + `type` | `201 {id, filename, mimeType, sizeBytes}`; `400` arquivo ausente (`reason: "arquivo_ausente"`), MIME não permitido (`reason: "mime_type_invalido"`) ou tamanho excedido — 5MB (`reason: "arquivo_excede_tamanho_maximo"`) |
+| `GET` | `/documents/me` | JWT + permission `document:read:own` | — | `200` lista os próprios |
+| `GET` | `/documents/:id` | JWT (sem `@Permissions()` — OU entre `read:own`/`read:application`) | — | `200` (stream/download); `403` nenhuma das 2 keys; `404` fora do escopo (dono, ou candidatura `UNDER_REVIEW`+ pra recrutador da empresa) |
+| `GET` | `/users` | JWT + permission `user:read` | — (query `?role&companyId&isActive&page&limit`) | `200` lista paginada |
+| `GET` | `/users/:id` | JWT + permission `user:read` | — | `200` (sem `password`); `404` |
+| `PATCH` | `/users/:id/company` | JWT + permission `user:manage` | `{companyId: number\|null}` | `200`; `404` usuário/empresa inexistente; `409` alvo não é RECRUITER (`reason: "usuario_nao_e_recrutador"`) |
+| `PATCH` | `/users/:id/role` | JWT + permission `user:manage` | `{roleId}` | `200`; `404` usuário/papel inexistente; `409` RECRUITER com vagas ativas (`reason: "recrutador_com_vagas_ativas"`) ou removeria o último ADMIN (`reason: "last_active_admin"`) |
+| `GET` | `/roles` | JWT + permission `role:manage` | — | `200` lista com `permissions[]` aninhadas (RBAC Nível B) |
+| `GET` | `/roles/:id` | JWT + permission `role:manage` | — | `200`; `404` |
+| `PUT` | `/roles/:id/permissions` | JWT + permission `role:manage` | `{permissionIds: number[]}` | `200` substitui o conjunto inteiro (efeito imediato, sem novo login — permissões são recalculadas do banco a cada request); `400` `permissionId` inexistente; `404` papel inexistente; `409` deixaria o sistema sem nenhum papel com `role:manage` (`reason: "sem_papel_com_role_manage"`) |
 
 **Nota sobre formato de erro:** a partir de `Companies`, respostas `404`/`409`
 de regra de negócio ganham um campo `reason` machine-readable além de

@@ -4,6 +4,7 @@ import { errorBody } from '../common/exceptions/error-body.util.js';
 import { JobStatus, Prisma } from '../generated/prisma/client.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import { isAdmin } from '../common/utils/role.util.js';
+import { isCompanyOperable } from '../common/utils/company-scope.util.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { CreateJobDto } from './dto/create-job.dto.js';
 import { UpdateJobDto } from './dto/update-job.dto.js';
@@ -152,11 +153,10 @@ export class JobsService {
   // afetadas retroativamente (desativar uma empresa não esconde vagas
   // já publicadas, só impede novas ações).
   private async assertCompanyActiveOrThrow(companyId: number): Promise<number> {
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company || !company.isActive) {
+    if (!(await isCompanyOperable(this.prisma, companyId))) {
       throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
     }
-    return company.id;
+    return companyId;
   }
 
   async findPublicList(query: ListJobsQueryDto) {

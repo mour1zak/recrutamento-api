@@ -393,8 +393,23 @@ dedicado registrado no `main.ts`, antes do Nest assumir a requisição.
 infraestrutura nova (não uma correção pontual), fora do escopo da rodada
 que a encontrou.
 
-**Status:** 🟡 Registrado. Baixa prioridade — `413` já é um status code
-correto, só o formato do corpo é inconsistente.
+**Atualização (Fase 4, módulo Documents):** o caso de upload de arquivo
+grande demais **não** passa pelo `body-parser` cru — o `FileInterceptor`
+do Nest já traduz o `MulterError('LIMIT_FILE_SIZE')` pra um
+`PayloadTooLargeException` normal (`HttpException`, `status: 413`) antes
+de sair do pipeline do Nest, então **esse caminho específico já é
+capturável pelo `GlobalExceptionFilter`** — corrigido, reclassificado
+para `400 arquivo_excede_tamanho_maximo` (o enunciado do módulo
+Documents pede `400`, não `413`, pra essa validação). Verificado por
+teste e2e (`test/documents.e2e-spec.ts`).
+
+**Status:** 🟡 Parcialmente resolvido. O caso de upload de arquivo
+(multer/`FileInterceptor`) está fechado. O caso original que motivou este
+item — um corpo JSON grande demais (ex.: um array `skills[]` muito longo)
+rejeitado pelo `body-parser` do Express antes do Nest — continua em
+aberto, ainda precisando do middleware dedicado no `main.ts` descrito
+acima. Baixa prioridade — `413` já é um status code correto, só o formato
+do corpo desse segundo caso é que é inconsistente.
 
 ---
 

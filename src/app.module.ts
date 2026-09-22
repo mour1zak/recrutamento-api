@@ -10,6 +10,10 @@ import { UsersModule } from './users/users.module.js';
 import { CompaniesModule } from './companies/companies.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
 import { CandidateProfileModule } from './candidate-profile/candidate-profile.module.js';
+import { ApplicationsModule } from './applications/applications.module.js';
+import { InterviewsModule } from './interviews/interviews.module.js';
+import { DocumentsModule } from './documents/documents.module.js';
+import { RolesModule } from './roles/roles.module.js';
 import { ApiKeyGuard } from './common/guards/api-key.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
@@ -36,6 +40,10 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter.
     CompaniesModule,
     JobsModule,
     CandidateProfileModule,
+    ApplicationsModule,
+    InterviewsModule,
+    DocumentsModule,
+    RolesModule,
   ],
   controllers: [AppController],
   providers: [

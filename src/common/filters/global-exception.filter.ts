@@ -1,4 +1,4 @@
-import { ArgumentsHost, Catch, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { ArgumentsHost, Catch, HttpStatus, PayloadTooLargeException, UnauthorizedException } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
 import type { Response } from 'express';
 import { Prisma } from '../../generated/prisma/client.js';
@@ -107,6 +107,18 @@ function isTransactionWriteConflict(error: unknown): boolean {
 @Catch()
 export class GlobalExceptionFilter extends BaseExceptionFilter {
   catch(exception: unknown, host: ArgumentsHost) {
+    // Achado Fase 4 (módulo Documents): o `FileInterceptor` do Nest já
+    // traduz o `MulterError('LIMIT_FILE_SIZE')` pra um `PayloadTooLargeException`
+    // (`HttpException` normal, com `status: 413`) ANTES de chegar aqui —
+    // nunca sobra um `MulterError` cru pro filtro tratar. O enunciado
+    // deste projeto (mapa DeepSeek, Documentos) especifica `400` pra
+    // "tamanho excedido", não `413` — reclassificado aqui pra manter o
+    // mesmo contrato de erro estruturado dos outros módulos de domínio.
+    if (exception instanceof PayloadTooLargeException) {
+      this.respond(host, HttpStatus.BAD_REQUEST, 'Arquivo excede o tamanho máximo permitido.', 'arquivo_excede_tamanho_maximo');
+      return;
+    }
+
     if (isTransactionWriteConflict(exception)) {
       this.respond(host, HttpStatus.CONFLICT, 'Conflito de concorrência — tente novamente.');
       return;

@@ -252,6 +252,94 @@ enumeração: unificar cegamente vazaria `company_not_found` na rota de
 perfis). Extrair só o **predicado** (não o lançamento do erro) quando
 `Application` existir, terceiro consumidor da mesma pergunta.
 
+## Adendo Fase 4 — Application, Interview, Document, Users, RBAC Nível B (implementado, SEM auditoria do Qwen ainda)
+
+Últimas ~4h de produção do prazo acordado com o usuário. Implementado o
+restante dos 41 endpoints do mapa do DeepSeek (`PARECER-DEEPSEEK-FASE2-ENDPOINTS.md`),
+reaproveitando os padrões já validados nas 3 rodadas anteriores de
+auditoria (escopo por empresa via `isAdmin()`/`isCompanyOperable()`
+compartilhados, `updateMany` condicionado pro estado lido em toda escrita
+concorrente, 404 anti-enumeração, `reason` estruturado, lista positiva em
+vez de negação pra qualquer decisão de visibilidade condicional). **Sem
+rodada de auditoria adversarial do Qwen** — diferente de Companies/Jobs/
+CandidateProfile, este trabalho não passou pelo ciclo reprovar→corrigir→
+reaprovar. Registrado como pendência explícita, não "fechado".
+
+- **`Application`** — regra obrigatória de duplicidade
+  (`@@unique([candidateId, jobId])`) e vaga inativa (`job.status !== OPEN`
+  ou empresa desativada → mesma regra de visibilidade de `Jobs.findOne`).
+  Máquina de estados `PENDING→UNDER_REVIEW→INTERVIEW→OFFERED→HIRED`,
+  `REJECTED` a partir de qualquer estado não-terminal, `WITHDRAWN` só via
+  rota dedicada (nunca destino de `PATCH .../status`). `HIRED` incrementa
+  `Job.filledCount` dentro de uma transação com o mesmo primitivo
+  condicional já provado em Jobs/Auth (`UPDATE ... WHERE filledCount <
+  vacancies`) — testado com duas contratações simultâneas na última vaga
+  (`Promise.all`), exatamente uma vence, nunca `5xx`. `GET /applications/:id`
+  reaproveita a mesma lista positiva de status "com visibilidade completa"
+  já usada em `CandidateProfile` (evita reintroduzir o bug da rodada 10,
+  C2, numa terceira leitura condicional). `resumeDocumentId` validado
+  contra IDOR (`ownerId === candidateId`, pendência que já estava
+  registrada desde a Fase 1).
+- **`Interview`** — contrato de `RESCHEDULED` (DeepSeek §5): cria uma NOVA
+  entrevista em vez de editar a original, `201` com a nova, original vira
+  `RESCHEDULED`. Só `SCHEDULED` tem saída; as outras 4 são terminais
+  (decisão adotada: `409`, não permite corrigir feedback depois —
+  decisão em aberto que o mapa do DeepSeek deixou registrada).
+- **`Document`** — upload real (multer, `diskStorage`, MIME whitelist +
+  limite de 5MB), fecha o cenário obrigatório #8. Achado corrigido no
+  caminho: o `FileInterceptor` do Nest já traduz
+  `MulterError('LIMIT_FILE_SIZE')` pra `PayloadTooLargeException`
+  (`413`) antes de chegar ao filtro — reclassificado no
+  `GlobalExceptionFilter` pra `400 arquivo_excede_tamanho_maximo` (o
+  enunciado deste módulo pede `400`). Fecha parcialmente
+  `FEEDBACKS-MELHORIA.md` #17 (só o caminho de upload; o caso original —
+  JSON grande demais — segue em aberto).
+- **`Users` (rotas novas)** — `GET /users`, `GET /users/:id`,
+  `PATCH /:id/company`, `PATCH /:id/role`. Usam o formato de erro
+  estruturado (diferente de `deactivate`/`reactivate`, que mantêm o
+  formato antigo por serem rotas já auditadas — decisão preservada).
+  `PATCH /:id/role` reusa a trava de "último ADMIN ativo" (mesmo espírito
+  do achado da rodada 5) e adiciona uma nova invariante (RECRUITER com
+  vaga ainda em andamento não pode trocar de papel sem reatribuir/encerrar
+  antes). **Efeito colateral do DeepSeek não implementado:** mudar a
+  empresa de um RECRUITER deveria reatribuir entrevistas futuras dele —
+  registrado, não implementado (baixo risco, sem teste que dependa disso
+  hoje).
+- **RBAC Nível B** — `GET /roles`, `GET /roles/:id`,
+  `PUT /roles/:id/permissions` (substituição completa do conjunto,
+  `permissionIds` numéricos — o schema usa `Permission.id: Int`, não a
+  `key` string que o mapa do DeepSeek sugeria). `DELETE /roles/:id`
+  deliberadamente não exposto (mesma lógica de `job:delete` reservado).
+  Trava mínima viável: bloqueia com `409` qualquer mudança que deixaria o
+  sistema **sem nenhum papel** com `role:manage` (ninguém, nem um futuro
+  ADMIN, conseguiria mais desfazer o erro) — testada como unidade
+  (`src/roles/roles.service.spec.ts`), não e2e, pra não arriscar mexer no
+  papel ADMIN real durante a suíte. Efeito imediato sem novo login,
+  provado por e2e (`test/roles.e2e-spec.ts`): permissão concedida a um
+  papel custom já vale na próxima requisição de quem tem esse papel,
+  revogá-la também.
+  **Registrado, não implementado:** revogação de `RolePermission` é
+  destrutiva (`deleteMany`+`createMany`), não soft-delete com autor —
+  exigiria migration nova, fora do orçamento de tempo desta rodada.
+  `isSystem` não precisou de proteção de código nova porque este módulo
+  nunca expõe rename/delete de `Role` (só leitura + substituição de
+  permissões).
+
+**Verificação:** build limpo · lint 0 avisos · `npm test` 6/6 ·
+`npm run test:e2e` 131/131 (**137 no total**), rodado repetidas vezes
+sem falha (uma falha isolada observada 1x em ~10 execuções, consistente
+com o perfil de flakiness já conhecido do ViaCEP real usado sem mock nos
+specs de Companies/CandidateProfile — não reproduzida nas execuções
+seguintes).
+
+**Próximo passo recomendado:** enviar este bloco inteiro pro Qwen como
+Rodada 12 antes de considerar a Fase 4 fechada — o padrão de auditoria
+adversarial das 3 rodadas anteriores encontrou críticos reais em módulos
+que pareciam corretos na primeira implementação (C1 de Jobs, C1/C2 de
+CandidateProfile); não há razão pra achar que `Application` (que soma
+concorrência real + PII + múltiplos papéis, os três ingredientes que
+causaram os críticos anteriores) esteja isento do mesmo risco.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
@@ -295,12 +383,24 @@ perfis). Extrair só o **predicado** (não o lançamento do erro) quando
       **testado de ponta a ponta de verdade**: admin desativa → `204` →
       `isActive=false` e refresh tokens revogados no banco → login do
       usuário desativado → `401`.
-- [ ] `resumeDocument.ownerId === candidateId` validado no Service antes de
-      aceitar uma candidatura (não é enforçável só por FK).
-- [ ] Regra de negócio escrita: `RESCHEDULED` sempre tem `rescheduledTo`
-      preenchido; `CANCELED` nunca tem.
-- [ ] Checagem no Service: não é possível criar `Interview` para
-      `Application` com `status = WITHDRAWN`.
+- [x] `resumeDocument.ownerId === candidateId` validado no Service antes de
+      aceitar uma candidatura (não é enforçável só por FK). **Feito na
+      Fase 4** — `ApplicationsService.assertOwnDocumentOrThrow()`, `400
+      resume_document_invalido` se o documento não existir ou não for do
+      candidato que está se candidatando.
+- [x] Regra de negócio escrita: `RESCHEDULED` sempre tem `rescheduledTo`
+      preenchido; `CANCELED` nunca tem. **Satisfeito por construção na
+      Fase 4** — `InterviewsService.reschedule()` só marca a entrevista
+      original como `RESCHEDULED` na MESMA transação em que cria a nova
+      com `previousInterviewId` apontando pra ela (`rescheduledTo` é a
+      relação reversa disso); nenhum outro caminho do código seta
+      `status: RESCHEDULED`, e nenhum caminho de `CANCELED` toca
+      `previousInterviewId`.
+- [x] Checagem no Service: não é possível criar `Interview` para
+      `Application` com `status = WITHDRAWN`. **Feito na Fase 4** (mais
+      restritivo que o pedido): `InterviewsService.create()` exige
+      `status === INTERVIEW` exatamente, rejeitando `WITHDRAWN` e
+      qualquer outro status com `409 application_not_in_interview_stage`.
 - [x] DTOs com `@MaxLength` em campos de texto, especialmente `password`
       (bcrypt trunca em 72 bytes silenciosamente) e `name`. **Feito, com
       correção**: a primeira versão usava `@MaxLength(72)` na senha —

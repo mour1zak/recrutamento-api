@@ -4,6 +4,7 @@ import { CEP_UNAVAILABLE_WARNING, CepService } from '../common/cep/cep.service.j
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { SYSTEM_ROLES } from '../common/constants/permissions.constants.js';
 import { isAdmin } from '../common/utils/role.util.js';
+import { isCompanyOperable } from '../common/utils/company-scope.util.js';
 import { ApplicationStatus, Prisma } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { UpdateCandidateProfileDto } from './dto/update-candidate-profile.dto.js';
@@ -194,11 +195,15 @@ export class CandidateProfileService {
     // rodada 8 (que só corrigiu a metade de ESCRITA em Jobs). O acesso
     // deriva de `Application` histórica, que nunca é apagada — sem esta
     // checagem, o efeito era permanente.
-    if (currentUser.companyId === null) {
-      throw profileNotFound();
-    }
-    const company = await this.prisma.company.findUnique({ where: { id: currentUser.companyId }, select: { isActive: true } });
-    if (!company || !company.isActive) {
+    // Achado Qwen rodada 11: o predicado (não o lançamento do erro) agora
+    // é compartilhado com `JobsService` via `isCompanyOperable()` —
+    // `Application` (que ganhou módulo próprio nesta rodada) é o terceiro
+    // consumidor da mesma pergunta. A checagem `=== null` explícita
+    // continua aqui (redundante com a de dentro de `isCompanyOperable`)
+    // só para o TypeScript estreitar o tipo pro `where` abaixo — uma
+    // chamada de função não propaga esse estreitamento sozinha.
+    const companyId = currentUser.companyId;
+    if (companyId === null || !(await isCompanyOperable(this.prisma, companyId))) {
       throw profileNotFound();
     }
 
@@ -206,10 +211,8 @@ export class CandidateProfileService {
     // candidato pra uma vaga da própria empresa — e só COMPLETO se
     // alguma candidatura já alcançou um status de avaliação de verdade
     // (ver `STATUSES_THAT_UNLOCK_FULL_PROFILE`, achado C2 acima).
-    // Consulta a tabela `Application` direto — o módulo ainda não tem
-    // controller próprio, mas o schema (Fase 1) já modela a relação.
     const applications = await this.prisma.application.findMany({
-      where: { candidateId: targetUserId, job: { companyId: currentUser.companyId } },
+      where: { candidateId: targetUserId, job: { companyId } },
       select: { status: true },
     });
     if (applications.length === 0) {

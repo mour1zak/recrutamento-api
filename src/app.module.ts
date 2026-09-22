@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { APP_FILTER, APP_GUARD } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { PassportModule } from '@nestjs/passport';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
@@ -19,6 +19,7 @@ import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
 import { envValidationSchema } from './config/env.validation.js';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter.js';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js';
 
 @Module({
   imports: [
@@ -65,6 +66,10 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter.
     // Trata Prisma, conflito de transação (Serializable) e 401 — delega o
     // resto pro comportamento padrão do Nest via `super.catch()`.
     { provide: APP_FILTER, useClass: GlobalExceptionFilter },
+    // Item obrigatório do enunciado ("ao menos um interceptor útil") —
+    // loga método/rota/status/duração de toda requisição, sem tocar no
+    // corpo (nunca vaza senha/token pro log).
+    { provide: APP_INTERCEPTOR, useClass: LoggingInterceptor },
   ],
 })
 export class AppModule {}

@@ -24,7 +24,10 @@
 > Gate Fase 3 pendente desde a Fase 1. Auth completo, RBAC dinâmico de
 > ponta a ponta, filtro global de exceções, integração externa de CEP
 > obrigatória do enunciado, upload de documento com validação de
-> MIME/tamanho. **145 testes automatizados verdes** (6 unitários + 139
+> MIME/tamanho. **Obrigatório do enunciado 100% concluído** — o interceptor
+> era o único item pendente (`LoggingInterceptor`, global, loga
+> método/rota/status/duração sem tocar no corpo). **148 testes automatizados
+> verdes** (9 unitários + 139
 > e2e) — **os 10 dos 10 cenários obrigatórios de teste** do enunciado
 > cobertos. Este
 > README é atualizado a cada fase concluída — documento histórico da
@@ -59,7 +62,7 @@ deixamos isso implícito no código._
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟢 `Job` (rodada 8/9), `Application` (`PENDING→...→HIRED`/`REJECTED`/`WITHDRAWN`, com histórico em `ApplicationStatusHistory`) e `Interview` (`SCHEDULED→COMPLETED/CANCELED/NO_SHOW/RESCHEDULED`, reagendamento cria novo registro) implementados e testados |
 | Upload de currículo/documento | 🟢 `POST /documents` (multipart, MIME whitelist + limite de 5MB), `GET /documents/:id` com escopo condicional (dono, ou recrutador com candidatura `UNDER_REVIEW`+) |
 | Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado desde a Rodada 11: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado`, achado Qwen N1 — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta) |
-| Interceptor coerente | ⬜ Não iniciado |
+| Interceptor coerente | 🟢 `LoggingInterceptor` (`src/common/interceptors/`) global via `APP_INTERCEPTOR` — loga método/rota/status/duração/id do usuário de toda requisição, sem tocar no corpo (nunca vaza senha/token) |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
@@ -277,14 +280,15 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **145 testes automatizados, todos
+e o teste não enviava a chave). Hoje: **148 testes automatizados, todos
 verdes** (139 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
 `test/candidate-profile.e2e-spec.ts` + `test/applications.e2e-spec.ts` +
 `test/interviews.e2e-spec.ts` + `test/documents.e2e-spec.ts` +
-`test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts`, 6 unitários em
+`test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts`, 9 unitários em
 `src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts` +
-`src/roles/roles.service.spec.ts`), cobrindo os cenários obrigatórios de
+`src/roles/roles.service.spec.ts` + `src/common/interceptors/logging.interceptor.spec.ts`),
+cobrindo os cenários obrigatórios de
 auth (400/401/409, fluxo completo de registro/login/refresh/logout, uma
 rota protegida por permission key, e a trava de último administrador sob
 concorrência real — 8 admins temporários, 4 pares de desativação mútua

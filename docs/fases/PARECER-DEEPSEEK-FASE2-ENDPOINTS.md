@@ -149,6 +149,20 @@ candidaturas/entrevistas/documentos.
   e `status ≥ UNDER_REVIEW`.
 - Caso contrário → `404`.
 
+> **Adendo — achado Qwen rodada 12/13 (K6), texto original acima
+> preservado verbatim.** A implementação seguiu este texto ao pé da
+> letra na Fase 4 e o Qwen reprovou (rodada 12): a branch `ownerId`
+> permitia que QUALQUER candidatura qualificada do candidato liberasse
+> TODOS os documentos dele, inclusive um nunca anexado a candidatura
+> nenhuma (ex.: um laudo médico). **Decisão registrada (rodada 13):**
+> a regra real e implementada é só `resumeDocumentId` — o documento
+> precisa estar de fato ANEXADO à candidatura, não apenas pertencer ao
+> mesmo candidato. Efeito colateral aceito conscientemente:
+> `COVER_LETTER`/`CERTIFICATE`/`OTHER` nunca ficam visíveis a recrutador
+> nenhum hoje, porque `Application` só tem um slot de anexo
+> (`resumeDocumentId`) — um modelo de anexos explícito resolveria isso
+> (registrado em `FEEDBACKS-MELHORIA.md`), fora do escopo desta fase.
+
 ## 7. Gestão de Usuários (`user:*`)
 
 | Método | URL | Permission key | Body | Respostas |

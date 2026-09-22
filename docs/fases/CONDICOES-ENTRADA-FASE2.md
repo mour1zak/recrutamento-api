@@ -391,6 +391,35 @@ incluindo reprodução real de concorrência pros 3 críticos de corrida
 (K1/K2/K3) — invariante no banco verificado depois de cada rodada, nunca
 "exatamente um 200".
 
+## Adendo Rodada 13 — Fase 4 fechada: APROVADO COM RESSALVAS
+
+Reapresentação da Rodada 12 (6 críticos). **Os seis fecharam sob carga
+maior que a que os encontrou** (K1 15/25→0/45, K2/K3 10/12→0/20 cada, K5
+4 rotas vazando→9/9 bloqueadas, K6 confirmado restrito à regra certa) —
+ver `PARECER-QWEN-FASE4-RODADA13.md` e `TRIAGEM-REVISOES-RODADA13.md`.
+
+3 condições de fechamento corrigidas nesta rodada, todas de contrato/
+documentação (nenhuma de segurança):
+- **`reason` no 409 de conflito de serialização** — precisou de 3
+  correções, não 1: o duck-typing de `TransactionWriteConflict`, o case
+  `P2034`/`P2028`, e o fallback por SQLSTATE do `GlobalExceptionFilter`
+  são 3 caminhos DIFERENTES que produzem o mesmo 409 sob carga real, e a
+  primeira tentativa só cobriu o primeiro — pego rodando a suíte 5×
+  seguidas (2 execuções expuseram o `reason` ausente nos outros 2
+  caminhos).
+- **Mapa do DeepSeek atualizado** com adendo (texto original preservado)
+  registrando que o escopo de `Document` é só `resumeDocumentId`, não
+  `ownerId` — e o efeito colateral aceito (só `RESUME` é anexável hoje).
+- **409 benigno de `PUT /roles/:id/permissions`** documentado no README.
+
+**Registrado, não corrigido** (antes da Fase 5, sem crítica nova): modelo
+de anexos explícito pra liberar `COVER_LETTER`/`CERTIFICATE`/`OTHER` a
+recrutador (`FEEDBACKS-MELHORIA.md`); `updateCompany` sem checar
+`isActive` da empresa; ciclo de vida do arquivo físico órfão.
+
+**Verificação:** build limpo · lint 0 avisos · `npm test` 6/6 ·
+`npm run test:e2e` 139/139 (**145 no total**), 5× seguidas sem falha.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem

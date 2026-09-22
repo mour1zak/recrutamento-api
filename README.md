@@ -14,14 +14,12 @@
 > reativar). Achado novo da Rodada 11 (contrato de CEP inválido vs. falha
 > de rede, especificado desde a Fase 1 e nunca implementado) também
 > corrigido. **Fase 4** (Application, Interview, Document, gestão de
-> Users e RBAC Nível B — os 41 endpoints do mapa do DeepSeek) **reprovada
-> na Rodada 12** com 6 críticos — todos por ausência de atomicidade em
-> escrita concorrente (`HIRED` × redução de `vacancies`; as duas travas de
-> "último" em RBAC Nível B e troca de papel de ADMIN) ou propagação
-> incompleta de proteções já existentes (`isCompanyOperable()` faltando em
-> 3 módulos; escopo de `Document` largo demais) — **todos corrigidos e
-> reverificados com concorrência real** (`Promise.all`, invariante no
-> banco depois, nunca "exatamente um 200"), aguardando reapresentação.
+> Users e RBAC Nível B — os 41 endpoints do mapa do DeepSeek) **fechada na
+> Rodada 13** (**APROVADO COM RESSALVAS**, depois de reprovação na Rodada
+> 12 com 6 críticos — todos por ausência de atomicidade em escrita
+> concorrente, ou propagação incompleta de proteções já existentes —
+> reatacados com carga MAIOR que a que os encontrou na reapresentação:
+> taxas de 60-100% caíram a 0% em até 45 rodadas de concorrência real).
 > Novo `CHECK (filledCount <= vacancies)` na migration fecha um item do
 > Gate Fase 3 pendente desde a Fase 1. Auth completo, RBAC dinâmico de
 > ponta a ponta, filtro global de exceções, integração externa de CEP
@@ -362,14 +360,14 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `PATCH` | `/interviews/:id` | JWT + permission `interview:update` | `{status?, feedback?, scheduledAt?}` | `200` (edição normal) ou **`201` com a NOVA entrevista** quando `status: "RESCHEDULED"` (a original vira `RESCHEDULED`, contrato do DeepSeek); `400` `scheduledAt` ausente no reagendamento; `404` fora do escopo; `409` entrevista já em status final |
 | `POST` | `/documents` | JWT + permission `document:upload:own` | `multipart/form-data`: `file` + `type` | `201 {id, filename, mimeType, sizeBytes}`; `400` arquivo ausente (`reason: "arquivo_ausente"`), MIME não permitido (`reason: "mime_type_invalido"`) ou tamanho excedido — 5MB (`reason: "arquivo_excede_tamanho_maximo"`) |
 | `GET` | `/documents/me` | JWT + permission `document:read:own` | — | `200` lista os próprios |
-| `GET` | `/documents/:id` | JWT (sem `@Permissions()` — OU entre `read:own`/`read:application`) | — | `200` (stream/download); `403` nenhuma das 2 keys; `404` fora do escopo (dono, ou candidatura `UNDER_REVIEW`+ pra recrutador da empresa) |
+| `GET` | `/documents/:id` | JWT (sem `@Permissions()` — OU entre `read:own`/`read:application`) | — | `200` (stream/download); `403` nenhuma das 2 keys; `404` fora do escopo. **Regra exata do `read:application`** (achado Qwen rodada 12/13, K6): só o documento **anexado como `resumeDocumentId`** de uma candidatura da empresa do recrutador, com status `UNDER_REVIEW`+, libera — não "qualquer documento do candidato" (isso vazava documentos nunca enviados à empresa, ex.: um laudo médico). Efeito colateral aceito conscientemente: `COVER_LETTER`/`CERTIFICATE`/`OTHER` nunca ficam visíveis a recrutador nenhum hoje, porque `Application` só tem um slot de anexo (`resumeDocumentId`) — um modelo de anexos explícito (`FEEDBACKS-MELHORIA.md`) resolveria isso, fora do escopo desta fase. Também: `REJECTED` remove o acesso ao currículo já anexado (mesma minimização de dados do `CandidateProfile`), decisão registrada aqui pra não ser "consertada" como bug depois |
 | `GET` | `/users` | JWT + permission `user:read` | — (query `?role&companyId&isActive&page&limit`) | `200` lista paginada |
 | `GET` | `/users/:id` | JWT + permission `user:read` | — | `200` (sem `password`); `404` |
 | `PATCH` | `/users/:id/company` | JWT + permission `user:manage` | `{companyId: number\|null}` | `200`; `404` usuário/empresa inexistente; `409` alvo não é RECRUITER (`reason: "usuario_nao_e_recrutador"`) |
 | `PATCH` | `/users/:id/role` | JWT + permission `user:manage` | `{roleId}` | `200`; `404` usuário/papel inexistente; `409` RECRUITER com vagas ativas (`reason: "recrutador_com_vagas_ativas"`) ou removeria o último ADMIN (`reason: "last_active_admin"`) |
 | `GET` | `/roles` | JWT + permission `role:manage` | — | `200` lista com `permissions[]` aninhadas (RBAC Nível B) |
 | `GET` | `/roles/:id` | JWT + permission `role:manage` | — | `200`; `404` |
-| `PUT` | `/roles/:id/permissions` | JWT + permission `role:manage` | `{permissionIds: number[]}` | `200` substitui o conjunto inteiro (efeito imediato, sem novo login — permissões são recalculadas do banco a cada request); `400` `permissionId` inexistente; `404` papel inexistente; `409` deixaria o sistema sem nenhum papel com `role:manage` (`reason: "sem_papel_com_role_manage"`) |
+| `PUT` | `/roles/:id/permissions` | JWT + permission `role:manage` | `{permissionIds: number[]}` | `200` substitui o conjunto inteiro (efeito imediato, sem novo login — permissões são recalculadas do banco a cada request); `400` `permissionId` inexistente; `404` papel inexistente; `409` deixaria o sistema sem nenhum papel com `role:manage` (`reason: "sem_papel_com_role_manage"`) **ou** conflito de concorrência (`reason: "concorrencia_transacao"`, achado Qwen rodada 13 — a transação `Serializable` que fecha o K2 pode gerar esse `409` em dois `PUT`s simultâneos mesmo em papéis diferentes e sem nenhum dos dois tocar `role:manage`, porque os dois leem o mesmo predicado global; é seguro e retryável, não indica erro do cliente) |
 
 **Nota sobre formato de erro:** a partir de `Companies`, respostas `404`/`409`
 de regra de negócio ganham um campo `reason` machine-readable além de

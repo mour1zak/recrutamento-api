@@ -191,6 +191,15 @@ describe('Roles / RBAC Nível B (e2e)', () => {
         ]);
 
         expect([resA.status, resB.status].every((s) => s === 200 || s === 409)).toBe(true);
+        // Achado Qwen rodada 13 (ressalva 1): o 409 de conflito de
+        // serialização é o desfecho mais comum desta corrida e agora
+        // precisa vir com `reason` — sem isso era o único 409 de domínio
+        // do projeto sem um.
+        for (const res of [resA, resB]) {
+          if (res.status === 409) {
+            expect(res.body.reason).toBe('concorrencia_transacao');
+          }
+        }
         const remaining = await prisma.rolePermission.count({ where: { permissionId: roleManagePermission.id } });
         // O invariante que importa: nunca ZERO. Não "exatamente um 200"
         // (as duas podem legitimamente falhar se o Postgres abortar as

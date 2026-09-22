@@ -204,6 +204,15 @@ describe('Users management (e2e)', () => {
         ]);
 
         expect([resX.status, resY.status].every((s) => s === 200 || s === 409)).toBe(true);
+        // Achado Qwen rodada 13 (ressalva 1): o 409 desta corrida pode
+        // vir da regra de negócio (`last_active_admin`) OU de um
+        // conflito de serialização puro (`concorrencia_transacao`) —
+        // os dois agora têm `reason`, nenhum 409 "mudo".
+        for (const res of [resX, resY]) {
+          if (res.status === 409) {
+            expect(['last_active_admin', 'concorrencia_transacao']).toContain(res.body.reason);
+          }
+        }
         const activeAdminsAfter = await prisma.user.count({ where: { isActive: true, roleId: adminRole.id } });
         // O invariante que importa: nunca ZERO admins ativos ao final.
         expect(activeAdminsAfter).toBeGreaterThanOrEqual(1);

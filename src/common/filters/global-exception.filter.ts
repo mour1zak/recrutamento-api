@@ -120,7 +120,15 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     }
 
     if (isTransactionWriteConflict(exception)) {
-      this.respond(host, HttpStatus.CONFLICT, 'Conflito de concorrência — tente novamente.');
+      // Achado Qwen rodada 13 (ressalva 1): este é, na prática, o
+      // desfecho MAIS FREQUENTE das travas novas de K2/K3 (9 em 10 `409`
+      // medidos no reataque do K3 eram conflito de serialização, não
+      // `last_active_admin`) — e era o único `409` de domínio do projeto
+      // sem `reason`, quebrando o contrato machine-readable que todos os
+      // outros seguem. Um cliente agora consegue distinguir
+      // programaticamente "é um retry seguro" de "é um conflito de
+      // negócio de verdade".
+      this.respond(host, HttpStatus.CONFLICT, 'Conflito de concorrência — tente novamente.', 'concorrencia_transacao');
       return;
     }
 
@@ -187,16 +195,24 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
         return { status: HttpStatus.BAD_REQUEST, message: 'Valor fora do intervalo permitido para o campo.' };
       case 'P2034':
       case 'P2028':
-        // Mantido por completude (ver comentário de isTransactionWriteConflict) —
-        // não é o caminho real hoje, mas custa nada deixar coberto.
-        return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência — tente novamente.' };
+        // Mantido por completude (ver comentário de isTransactionWriteConflict).
+        // Achado Qwen rodada 13 (ressalva 1): sob carga real, um conflito
+        // de serialização às vezes chega aqui (como
+        // `PrismaClientKnownRequestError` limpo) em vez de pelo
+        // duck-typing de `isTransactionWriteConflict` — precisa do MESMO
+        // `reason`, senão volta a existir um 409 de concorrência sem
+        // contrato machine-readable.
+        return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência — tente novamente.', reason: 'concorrencia_transacao' };
       default: {
         // P2010 (SQL cru) e qualquer outro código não mapeado acima podem
         // ainda assim ser um erro de integridade/concorrência real — ver
         // comentário de SQLSTATE_CONFLICT/SQLSTATE_BAD_REQUEST acima.
         const state = this.sqlState(exception);
         if (state && SQLSTATE_CONFLICT.has(state)) {
-          return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência ou de regra de negócio — tente novamente.' };
+          // Mesmo achado Qwen rodada 13 (ressalva 1) — este é o caminho
+          // que um `CHECK` disparando (`23514`, ex.: `filledCount <=
+          // vacancies`) ou um deadlock/lock-timeout percorre.
+          return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência ou de regra de negócio — tente novamente.', reason: 'concorrencia_transacao' };
         }
         if (state && SQLSTATE_BAD_REQUEST.has(state)) {
           return { status: HttpStatus.BAD_REQUEST, message: 'Referência ou valor inválido para um campo relacionado.' };

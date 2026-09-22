@@ -21,9 +21,11 @@ export class CreateCompanyDto {
   description?: string;
 
   // Obrigatório no DTO (dispara a consulta externa), mas o campo persistido
-  // é opcional no schema — se a consulta falhar, a empresa ainda é criada,
-  // só sem endereço enriquecido (achado #9 do enunciado: integração
-  // externa falhando de forma controlada, nunca bloqueando a operação).
+  // é opcional no schema. Achado #9 do enunciado (integração externa
+  // falhando de forma controlada): uma falha de REDE não bloqueia a
+  // criação (empresa criada sem endereço enriquecido); um CEP que o
+  // provedor confirma não existir bloqueia com 400 (achado Qwen rodada
+  // 11, N1 — ver CepService).
   @IsString()
   @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP deve ter o formato 00000-000 ou 00000000.' })
   cep!: string;

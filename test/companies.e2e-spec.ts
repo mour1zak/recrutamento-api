@@ -16,7 +16,9 @@ loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
  * os dois cenários reais de CEP (achado #9 do enunciado — integração
  * externa funcionando e falhando de forma controlada) contra o ViaCEP de
  * verdade, sem mock: um CEP válido conhecido (enriquece o endereço) e um
- * inexistente (a empresa é criada do mesmo jeito, com endereço em branco).
+ * inexistente — que, a partir da rodada 11 (achado Qwen N1), REJEITA a
+ * operação com `400` em vez de criar com endereço em branco (só falha de
+ * REDE faz isso; CEP explicitamente inválido é erro de quem enviou).
  */
 describe('Companies (e2e)', () => {
   let app: INestApplication<App>;
@@ -93,17 +95,21 @@ describe('Companies (e2e)', () => {
     expect(res.body.city === null || typeof res.body.city === 'string').toBe(true);
   });
 
-  it('POST /companies com CEP inexistente (real, sem mock) -> 201 mesmo assim, endereço em branco', async () => {
+  // Achado Qwen rodada 11 (N1): antes desta correção, um CEP explicitamente
+  // inválido (o provedor confirma que não existe) e uma falha de REDE
+  // recebiam o mesmo tratamento ("cria assim mesmo, endereço em branco") —
+  // o que permitia, num UPDATE, gravar um `cep` novo com o endereço ANTIGO
+  // (achado que o próprio Qwen encontrou na correção da ressalva 1 da
+  // rodada 10). Agora só falha de rede não bloqueia; CEP inválido rejeita.
+  it('POST /companies com CEP inexistente (real, sem mock) -> 400, rejeitado (achado Qwen rodada 11, N1)', async () => {
     const res = await request(app.getHttpServer())
       .post('/companies')
       .set('x-api-key', apiKey)
       .set('Authorization', `Bearer ${adminToken}`)
       .send({ name: `Empresa CEP inexistente ${Date.now()}`, cep: '00000-000' })
-      .expect(201);
+      .expect(400);
 
-    expect(res.body.street).toBeNull();
-    expect(res.body.city).toBeNull();
-    expect(res.body.state).toBeNull();
+    expect(res.body.reason).toBe('cep_nao_encontrado');
   });
 
   describe('ciclo completo: criar -> ler -> atualizar -> desativar -> reativar', () => {
@@ -111,11 +117,15 @@ describe('Companies (e2e)', () => {
     let companyId: number;
 
     it('POST /companies com CNPJ -> 201', async () => {
+      // Achado Qwen rodada 11 (N1): `00000-000` era usado aqui só como CEP
+      // "descartável" (o foco do teste é CNPJ, não endereço) — mas agora
+      // um CEP inexistente rejeita a criação (`400`), então precisa de um
+      // CEP real e resolvível, mesmo não sendo o foco do teste.
       const res = await request(app.getHttpServer())
         .post('/companies')
         .set('x-api-key', apiKey)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name: 'Empresa Ciclo Completo', cnpj, cep: '00000-000' })
+        .send({ name: 'Empresa Ciclo Completo', cnpj, cep: '01310-100' })
         .expect(201);
       companyId = res.body.id;
     });
@@ -125,7 +135,7 @@ describe('Companies (e2e)', () => {
         .post('/companies')
         .set('x-api-key', apiKey)
         .set('Authorization', `Bearer ${adminToken}`)
-        .send({ name: 'Empresa Duplicada', cnpj, cep: '00000-000' })
+        .send({ name: 'Empresa Duplicada', cnpj, cep: '01310-100' })
         .expect(409);
 
       expect(res.body.reason).toBe('cnpj_duplicado');

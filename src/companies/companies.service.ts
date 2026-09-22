@@ -1,12 +1,16 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CepService, isResolvedAddress } from '../common/cep/cep.service.js';
+import { CEP_UNAVAILABLE_WARNING, CepService } from '../common/cep/cep.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { CreateCompanyDto } from './dto/create-company.dto.js';
 import { UpdateCompanyDto } from './dto/update-company.dto.js';
 
 function normalizeCnpj(cnpj: string): string {
   return cnpj.replace(/\D/g, '');
+}
+
+function cepInvalidError() {
+  return new BadRequestException(errorBody(400, 'cep_nao_encontrado', 'CEP informado não existe.'));
 }
 
 @Injectable()
@@ -17,25 +21,36 @@ export class CompaniesService {
   ) {}
 
   async create(dto: CreateCompanyDto) {
-    // Falha de CEP nunca bloqueia a criação (ver CepService) — endereço
-    // fica null e a empresa é criada normalmente.
-    const address = await this.cepService.resolve(dto.cep);
+    // Achado Qwen rodada 11 (N1): CEP explicitamente inválido (provedor
+    // confirma que não existe) é erro de quem enviou, não falha
+    // transitória — rejeita a criação (PARECER-DEEPSEEK-FASE1.md §5,
+    // cenário 2). Só uma falha de REDE/timeout ("unavailable") não bloqueia
+    // a operação (cenários 4-7 do mesmo parecer).
+    const resolution = await this.cepService.resolve(dto.cep);
+    if (resolution.status === 'invalid') {
+      throw cepInvalidError();
+    }
 
     // Sem checagem prévia de "CNPJ já existe" (mesmo padrão de
     // createCandidate em users.service.ts): checar-então-criar tem janela
     // de corrida. O `@@unique(cnpj)` do banco garante a regra; o P2002
     // vira 409 com reason "cnpj_duplicado" no GlobalExceptionFilter.
-    return this.prisma.company.create({
+    const company = await this.prisma.company.create({
       data: {
         name: dto.name,
         cnpj: dto.cnpj ? normalizeCnpj(dto.cnpj) : undefined,
         description: dto.description,
         cep: dto.cep,
-        street: address.street,
-        city: address.city,
-        state: address.state,
+        street: resolution.street,
+        city: resolution.city,
+        state: resolution.state,
       },
     });
+    // Achado Qwen rodada 11: o "+ aviso" que o parecer da Fase 1 já pedia
+    // pros cenários de indisponibilidade nunca tinha sido implementado —
+    // campo extra na resposta, não persistido, só pra sinalizar ao
+    // cliente que o endereço pode estar incompleto por falha externa.
+    return resolution.status === 'unavailable' ? { ...company, addressWarning: CEP_UNAVAILABLE_WARNING } : company;
   }
 
   async findActiveOrThrow(id: number) {
@@ -49,23 +64,28 @@ export class CompaniesService {
   async update(id: number, dto: UpdateCompanyDto) {
     await this.findActiveOrThrow(id);
 
-    const address = dto.cep ? await this.cepService.resolve(dto.cep) : undefined;
-    // Achado Qwen rodada 10 (ressalva 1, mesmo padrão de
-    // CandidateProfile): uma falha transitória do ViaCEP durante um
-    // UPDATE não pode apagar um endereço bom já salvo — só sobrescreve
-    // se a consulta realmente resolveu algo.
-    const resolvedAddress = address && isResolvedAddress(address) ? address : undefined;
+    // Achado Qwen rodada 11 (N1): a correção da rodada 10 ("preserva
+    // endereço se a consulta não resolveu nada") tratava CEP inválido e
+    // falha de rede da mesma forma — permitindo salvar um `cep` novo com o
+    // `street/city/state` do endereço ANTIGO, um par inconsistente. Agora
+    // só "unavailable" preserva; "invalid" rejeita a atualização inteira,
+    // igual à criação.
+    const resolution = dto.cep ? await this.cepService.resolve(dto.cep) : undefined;
+    if (resolution?.status === 'invalid') {
+      throw cepInvalidError();
+    }
 
-    return this.prisma.company.update({
+    const company = await this.prisma.company.update({
       where: { id },
       data: {
         name: dto.name,
         cnpj: dto.cnpj ? normalizeCnpj(dto.cnpj) : undefined,
         description: dto.description,
         cep: dto.cep,
-        ...(resolvedAddress ? { street: resolvedAddress.street, city: resolvedAddress.city, state: resolvedAddress.state } : {}),
+        ...(resolution?.status === 'ok' ? { street: resolution.street, city: resolution.city, state: resolution.state } : {}),
       },
     });
+    return resolution?.status === 'unavailable' ? { ...company, addressWarning: CEP_UNAVAILABLE_WARNING } : company;
   }
 
   async deactivate(id: number) {

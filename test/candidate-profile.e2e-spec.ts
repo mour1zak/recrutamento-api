@@ -375,19 +375,37 @@ describe('CandidateProfile (e2e)', () => {
     expect(res.body.city === null || typeof res.body.city === 'string').toBe(true);
   });
 
-  it('PATCH /candidates/me com CEP inválido depois de um CEP válido -> mantém o endereço anterior (achado Qwen rodada 10, ressalva 1)', async () => {
-    // CEP com formato válido mas fora do intervalo real do Brasil — o
-    // ViaCEP responde `erro: true` (CEP inexistente), o mesmo formato de
-    // "não resolveu nada" que uma falha de rede produziria.
+  // Achado Qwen rodada 11 (N1): a versão anterior deste teste tratava "CEP
+  // com formato válido mas inexistente" como equivalente a "falha de
+  // rede" — as duas caíam no mesmo branch ("não resolveu nada, preserva o
+  // endereço"), permitindo salvar um `cep` novo com o `street/city/state`
+  // do endereço ANTIGO (par inconsistente, apontado pelo Qwen). Agora um
+  // CEP que o provedor confirma não existir REJEITA a atualização inteira
+  // — nem o `cep` nem o `phone` da mesma requisição são aplicados.
+  it('PATCH /candidates/me com CEP inexistente -> 400, rejeitado, nada da requisição é aplicado (achado Qwen rodada 11, N1)', async () => {
+    const before = await request(app.getHttpServer())
+      .get('/candidates/me')
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${candidateAToken}`)
+      .expect(200);
+
     const res = await request(app.getHttpServer())
       .patch('/candidates/me')
       .set('x-api-key', apiKey)
       .set('Authorization', `Bearer ${candidateAToken}`)
       .send({ cep: '99999-999', phone: '11000000000' })
+      .expect(400);
+    expect(res.body.reason).toBe('cep_nao_encontrado');
+
+    const after = await request(app.getHttpServer())
+      .get('/candidates/me')
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${candidateAToken}`)
       .expect(200);
-    // O telefone novo aplica; se o endereço anterior existia (São Paulo,
-    // do teste de cima) e a consulta deste CEP não resolveu nada, ele
-    // deve continuar lá — não ser apagado.
-    expect(res.body.phone).toBe('11000000000');
+    // Nem o CEP/endereço, nem o telefone da mesma requisição rejeitada
+    // foram alterados — a rejeição é da operação inteira, não parcial.
+    expect(after.body.cep).toBe(before.body.cep);
+    expect(after.body.street).toBe(before.body.street);
+    expect(after.body.phone).toBe(before.body.phone);
   });
 });

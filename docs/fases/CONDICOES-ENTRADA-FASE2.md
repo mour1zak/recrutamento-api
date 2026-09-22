@@ -205,6 +205,53 @@ entre `Jobs` e `CandidateProfile` — extrair helper compartilhado quando
 `Application` precisar da mesma lógica; corpo do `413` fora do padrão do
 projeto (registrado em `FEEDBACKS-MELHORIA.md`).
 
+## Adendo rodada 11 — APROVADO COM RESSALVAS (Fase 3 fechada: CandidateProfile)
+
+Reapresentação da Rodada 10 (que reprovou com 2 críticos de PII). **Os
+dois fecharam sob ataque mais amplo** que o nosso próprio (matriz
+completa dos 7 status, sequências de transição, candidaturas mistas,
+ciclo desativar→reativar, comparação byte-a-byte dos 6 corpos de `404`)
+— ver `PARECER-QWEN-FASE3-CANDIDATEPROFILE-RODADA11.md` e
+`TRIAGEM-REVISOES-RODADA11.md`.
+
+Um achado **novo**, consequência direta da correção da ressalva 1 da
+rodada 10 — e que o próprio Qwen registrou como falha de auditoria dele
+mesmo, não só nossa (mediu `CEP inexistente → 201` na rodada 8 e marcou
+como ✅ sem confrontar com o contrato que o `PARECER-DEEPSEEK-FASE1.md`
+§5 já especificava desde a Fase 1):
+
+- **N1 — CEP inválido e falha de rede eram tratados da mesma forma**,
+  permitindo salvar um `cep` novo com o `street/city/state` do endereço
+  ANTIGO (par CEP×endereço inconsistente). Corrigido implementando o
+  contrato discriminado que o §5 sempre especificou:
+  `CepService.resolve()` agora devolve `status: 'ok'|'invalid'|
+  'unavailable'` — `invalid` (o provedor confirma que o CEP não existe)
+  rejeita a operação inteira com `400 cep_nao_encontrado`; `unavailable`
+  (falha de rede/timeout) preserva o endereço anterior e sinaliza um
+  `addressWarning` na resposta, nunca bloqueia. Aplicado em
+  `CompaniesService` e `CandidateProfileService` (mesmo bug nos dois,
+  apontado pelo Qwen).
+
+Três ressalvas de custo baixo também fechadas nesta rodada:
+- **`isAdmin()` duplicada verbatim** em `JobsService` e
+  `CandidateProfileService` — extraída pra `src/common/utils/role.util.ts`.
+- **`db:reset:test` quebrava em clone fresco** (`ERR_MODULE_NOT_FOUND` no
+  seed, que importa o client gerado) — `prisma generate` adicionado como
+  primeiro passo do script. Reproduzido o erro exato (apagando
+  `src/generated/prisma/` e rodando só o seed) antes de confirmar que a
+  correção resolve.
+- **README §5 descrevia o perfil reduzido como "candidatura `PENDING`"**
+  — desatualizado desde o C2 da rodada 10 (`REJECTED`/`WITHDRAWN` também
+  reduzem). Corrigido para descrever a lista positiva.
+
+**Registrado, sem bloquear (decisão do próprio Qwen sobre extrair
+agora):** a checagem de "empresa operável" (`company.isActive`) segue
+duplicada entre `JobsService` e `CandidateProfileService` — mas com
+`reason`s de 404 **intencionalmente diferentes** por módulo (anti-
+enumeração: unificar cegamente vazaria `company_not_found` na rota de
+perfis). Extrair só o **predicado** (não o lançamento do erro) quando
+`Application` existir, terceiro consumidor da mesma pergunta.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem

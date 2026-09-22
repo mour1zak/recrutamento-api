@@ -18,7 +18,9 @@ export class UpdateCandidateProfileDto {
 
   // Opcional (diferente de Company): o candidato pode preencher o perfil
   // aos poucos, sem CEP na primeira vez. Se vier, dispara nova consulta
-  // (mesmo CepService de Companies) e substitui o endereço atual.
+  // (mesmo CepService de Companies); só substitui o endereço atual se o
+  // CEP resolver de verdade (rejeita com 400 se for inválido, preserva o
+  // endereço anterior se o provedor estiver indisponível — ver CepService).
   @IsOptional()
   @IsString()
   @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP deve ter o formato 00000-000 ou 00000000.' })

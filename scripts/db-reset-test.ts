@@ -42,7 +42,14 @@ const childEnv = { ...process.env, ...parsed };
 // eles são sempre literais fixos (nunca vêm de input externo). Passar o
 // comando inteiro como uma única string (sem array de `args` separado)
 // evita o aviso sem perder a proteção: não há nada externo pra escapar.
-for (const command of ['npx prisma migrate reset --force', 'npx prisma db seed']) {
+// Achado Qwen rodada 11 (ressalva 3): faltava `prisma generate` antes do
+// `db seed` — o seed importa o client gerado (`src/generated/prisma/`),
+// que é gitignored. Em qualquer clone novo (sem `npm run build`/`test:e2e`
+// rodado antes, que geram o client como efeito colateral), este script
+// quebrava com `ERR_MODULE_NOT_FOUND` antes de chegar aos testes.
+// `pretest:e2e` já fazia essa geração — a necessidade era conhecida, só
+// não estava aqui.
+for (const command of ['npx prisma generate', 'npx prisma migrate reset --force', 'npx prisma db seed']) {
   console.log(`\n$ ${command}  (contra "${databaseName}")`);
   const result = spawnSync(command, { stdio: 'inherit', env: childEnv, shell: true });
   if (result.status !== 0) {

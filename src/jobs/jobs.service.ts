@@ -2,7 +2,8 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { JobStatus, Prisma } from '../generated/prisma/client.js';
-import { PERMISSIONS, SYSTEM_ROLES } from '../common/constants/permissions.constants.js';
+import { PERMISSIONS } from '../common/constants/permissions.constants.js';
+import { isAdmin } from '../common/utils/role.util.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { CreateJobDto } from './dto/create-job.dto.js';
 import { UpdateJobDto } from './dto/update-job.dto.js';
@@ -70,10 +71,6 @@ function stripCompanyIsActive<T extends { company: { id: number; name: string; i
 
 function jobNotFound() {
   return new NotFoundException(errorBody(404, 'job_not_found', 'Vaga não encontrada.'));
-}
-
-function isAdmin(user: AuthenticatedUser): boolean {
-  return user.roleName === SYSTEM_ROLES.ADMIN;
 }
 
 // Achado crítico Qwen rodada 8 (C1): antes desta correção, "está dentro

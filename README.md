@@ -6,10 +6,14 @@
 > depois de reprovação na Rodada 8 por 3 críticos de isolamento entre
 > empresas e concorrência — todos corrigidos e reverificados sob carga
 > maior, 0 violações em 96+ execuções concorrentes). `CandidateProfile`
-> reprovado na Rodada 10 (2 críticos de vazamento de PII — recrutador de
-> empresa desativada lendo perfil completo, e status `REJECTED`/
-> `WITHDRAWN` destravando dados completos indevidamente) e já corrigido,
-> aguardando reapresentação. Auth completo, RBAC
+> fechado na Rodada 11 (**APROVADO COM RESSALVAS**, depois de reprovação
+> na Rodada 10 por 2 críticos de vazamento de PII — recrutador de empresa
+> desativada lendo perfil completo, e status `REJECTED`/`WITHDRAWN`
+> destravando dados completos indevidamente — todos fechados sob ataque
+> mais amplo: matriz completa de status, cross-tenant, ciclo desativar/
+> reativar). Achado novo da Rodada 11 (contrato de CEP inválido vs. falha
+> de rede, especificado desde a Fase 1 e nunca implementado) também
+> corrigido. Auth completo, RBAC
 > dinâmico de ponta a ponta, filtro global de exceções, integração
 > externa de CEP obrigatória do enunciado. **79 testes automatizados
 > verdes** — 9 dos 10 cenários obrigatórios de teste já cobertos. O
@@ -47,7 +51,7 @@ deixamos isso implícito no código._
 | Consultas por relacionamento | 🟡 `GET /jobs*` já traz `company:{id,name}`; visibilidade de `CandidateProfile` atravessa `Application → Job → Company` (achado Qwen rodada 10 — estava marcado errado como "não iniciado") |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
-| Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` (`src/common/cep/cep.service.ts`, reusável para `CandidateProfile` depois) — CEP válido enriquece endereço, CEP inexistente/API fora do ar/timeout nunca bloqueiam a operação principal, endereço fica `null` |
+| Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado desde a Rodada 11: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado`, achado Qwen N1 — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta) |
 | Interceptor coerente | ⬜ Não iniciado |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
@@ -284,9 +288,10 @@ asserção baseada no invariante real, não em quem vence a corrida), a
 visibilidade condicional de `CandidateProfile` (reduzido/completo
 conforme o status real de uma `Application`, nunca `403`), e a
 integração externa de CEP funcionando e falhando de forma controlada
-(contra o ViaCEP real, sem mock — o único mock do projeto é o `HttpService`
-no teste unitário do
-`CepService`, pra provocar timeout de forma determinística). 9 dos 10
+(contra o ViaCEP real, sem mock, para os cenários e2e — o único mock do
+projeto é o `HttpService` no teste unitário do `CepService`, pra provocar
+de forma determinística os três resultados do contrato discriminado:
+`ok`/`invalid`/`unavailable`, achado Qwen rodada 11). 9 dos 10
 cenários obrigatórios do enunciado já cobertos (ver §2.1); falta só #8
 (upload), que depende de `Document`, ainda não implementado.
 
@@ -319,7 +324,7 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `PATCH` | `/jobs/:id/status` | JWT + permission `job:status:update` | `{status}` | `200`; `400` transição inválida (`reason: "invalid_status_transition"`); `404` fora do escopo; `409` `FILLED` sem preencher todas as vagas (`reason: "job_not_fully_filled"`) |
 | `GET` | `/candidates/me` | JWT + permission `candidate-profile:read` | — | `200`; `404` perfil ainda não criado |
 | `PATCH` | `/candidates/me` | JWT + permission `candidate-profile:update:own` | `{headline?, summary?, phone?, cep?, skills?}` | `200` (upsert — cria na primeira chamada); `400` DTO/CEP |
-| `GET` | `/candidates/:userId` | JWT + permission `candidate-profile:read` | — | `200` completo (dono/ADMIN) ou reduzido (RECRUITER com candidatura `PENDING`); `404` não é candidato, sem relação, ou fora do escopo |
+| `GET` | `/candidates/:userId` | JWT + permission `candidate-profile:read` | — | `200` completo (dono/ADMIN, ou RECRUITER com candidatura em `UNDER_REVIEW`/`INTERVIEW`/`OFFERED`/`HIRED`) ou reduzido (RECRUITER só com candidatura `PENDING`/`REJECTED`/`WITHDRAWN` — achado Qwen rodada 10, C2: lista positiva, não "diferente de `PENDING`"); `404` não é candidato, sem relação, empresa do recrutador desativada, ou fora do escopo |
 
 **Nota sobre formato de erro:** a partir de `Companies`, respostas `404`/`409`
 de regra de negócio ganham um campo `reason` machine-readable além de

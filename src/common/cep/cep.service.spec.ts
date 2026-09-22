@@ -24,30 +24,36 @@ describe('CepService', () => {
     return moduleRef.get(CepService);
   }
 
-  it('timeout na chamada externa -> endereço em branco, sem lançar', async () => {
+  // Achado Qwen rodada 11 (N1): antes, os dois casos abaixo (CEP
+  // inexistente e falha de rede) devolviam o mesmo formato (`{street:
+  // null, city: null, state: null}`), indistinguíveis pra quem chamava —
+  // era exatamente essa ambiguidade que permitia gravar um `cep` novo com
+  // o endereço ANTIGO quando o CEP era só inválido, não indisponível.
+  // Agora o `status` discrimina os dois.
+  it('timeout na chamada externa -> status "unavailable", endereço em branco, sem lançar', async () => {
     const get = vi.fn().mockReturnValue(throwError(() => new AxiosError('timeout of 3000ms exceeded', 'ECONNABORTED')));
     const service = await build(get);
 
     const result = await service.resolve('01310-100');
 
-    expect(result).toEqual({ street: null, city: null, state: null });
+    expect(result).toEqual({ status: 'unavailable', street: null, city: null, state: null });
   });
 
-  it('resposta 2xx mas payload com erro:true (CEP inexistente) -> endereço em branco', async () => {
+  it('resposta 2xx mas payload com erro:true (CEP inexistente) -> status "invalid", endereço em branco', async () => {
     const get = vi.fn().mockReturnValue(of({ data: { erro: true } }));
     const service = await build(get);
 
     const result = await service.resolve('00000-000');
 
-    expect(result).toEqual({ street: null, city: null, state: null });
+    expect(result).toEqual({ status: 'invalid', street: null, city: null, state: null });
   });
 
-  it('resposta válida -> endereço preenchido', async () => {
+  it('resposta válida -> status "ok", endereço preenchido', async () => {
     const get = vi.fn().mockReturnValue(of({ data: { logradouro: 'Av. Paulista', localidade: 'São Paulo', uf: 'SP' } }));
     const service = await build(get);
 
     const result = await service.resolve('01310-100');
 
-    expect(result).toEqual({ street: 'Av. Paulista', city: 'São Paulo', state: 'SP' });
+    expect(result).toEqual({ status: 'ok', street: 'Av. Paulista', city: 'São Paulo', state: 'SP' });
   });
 });

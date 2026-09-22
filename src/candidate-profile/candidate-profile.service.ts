@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CepService, isResolvedAddress } from '../common/cep/cep.service.js';
+import { CEP_UNAVAILABLE_WARNING, CepService } from '../common/cep/cep.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { SYSTEM_ROLES } from '../common/constants/permissions.constants.js';
+import { isAdmin } from '../common/utils/role.util.js';
 import { ApplicationStatus, Prisma } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { UpdateCandidateProfileDto } from './dto/update-candidate-profile.dto.js';
@@ -11,8 +12,8 @@ function profileNotFound() {
   return new NotFoundException(errorBody(404, 'candidate_profile_not_found', 'Perfil de candidato não encontrado.'));
 }
 
-function isAdmin(user: AuthenticatedUser): boolean {
-  return user.roleName === SYSTEM_ROLES.ADMIN;
+function cepInvalidError() {
+  return new BadRequestException(errorBody(400, 'cep_nao_encontrado', 'CEP informado não existe.'));
 }
 
 // Achado crítico Qwen rodada 10 (C2): o predicado anterior era
@@ -94,12 +95,16 @@ export class CandidateProfileService {
   }
 
   async upsertMine(currentUser: AuthenticatedUser, dto: UpdateCandidateProfileDto) {
-    const address = dto.cep ? await this.cepService.resolve(dto.cep) : undefined;
-    // Achado Qwen rodada 10 (ressalva 1): só sobrescreve o endereço se a
-    // consulta realmente resolveu algo — uma falha transitória do ViaCEP
-    // não pode apagar um endereço bom só porque o candidato queria trocar
-    // o telefone (nem mandou CEP diferente do que já tinha).
-    const resolvedAddress = address && isResolvedAddress(address) ? address : undefined;
+    // Achado Qwen rodada 11 (N1): a correção da rodada 10 ("preserva
+    // endereço se a consulta não resolveu nada") tratava CEP inválido e
+    // falha de rede da mesma forma — permitindo salvar um `cep` novo com o
+    // `street/city/state` do endereço ANTIGO, um par inconsistente. Agora
+    // só "unavailable" preserva; "invalid" rejeita a atualização inteira
+    // (mesmo contrato de CompaniesService).
+    const resolution = dto.cep ? await this.cepService.resolve(dto.cep) : undefined;
+    if (resolution?.status === 'invalid') {
+      throw cepInvalidError();
+    }
 
     const updateData: Prisma.CandidateProfileUpdateInput = {
       headline: dto.headline,
@@ -107,8 +112,9 @@ export class CandidateProfileService {
       phone: dto.phone,
       cep: dto.cep,
       skills: dto.skills,
-      ...(resolvedAddress ? { street: resolvedAddress.street, city: resolvedAddress.city, state: resolvedAddress.state } : {}),
+      ...(resolution?.status === 'ok' ? { street: resolution.street, city: resolution.city, state: resolution.state } : {}),
     };
+    const addressWarning = resolution?.status === 'unavailable' ? CEP_UNAVAILABLE_WARNING : undefined;
 
     try {
       const profile = await this.prisma.candidateProfile.upsert({
@@ -119,15 +125,16 @@ export class CandidateProfileService {
           summary: dto.summary,
           phone: dto.phone,
           cep: dto.cep,
-          street: address?.street ?? null,
-          city: address?.city ?? null,
-          state: address?.state ?? null,
+          street: resolution?.status === 'ok' ? resolution.street : null,
+          city: resolution?.status === 'ok' ? resolution.city : null,
+          state: resolution?.status === 'ok' ? resolution.state : null,
           skills: dto.skills ?? [],
         },
         update: updateData,
         select: FULL_SELECT,
       });
-      return toFullResponse(profile);
+      const response = toFullResponse(profile);
+      return addressWarning ? { ...response, addressWarning } : response;
     } catch (error) {
       // Achado Qwen rodada 10 (P4): `upsert` não é atômico contra outra
       // requisição criando a MESMA linha entre a checagem interna do
@@ -145,7 +152,8 @@ export class CandidateProfileService {
           data: updateData,
           select: FULL_SELECT,
         });
-        return toFullResponse(profile);
+        const response = toFullResponse(profile);
+        return addressWarning ? { ...response, addressWarning } : response;
       }
       throw error;
     }

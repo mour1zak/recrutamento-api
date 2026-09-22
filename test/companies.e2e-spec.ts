@@ -164,12 +164,12 @@ describe('Companies (e2e)', () => {
         .expect(404);
     });
 
-    it('PATCH /companies/:id/deactivate de novo -> 404 com reason "company_already_inactive"', async () => {
+    it('PATCH /companies/:id/deactivate de novo -> 409 com reason "company_already_inactive" (achado Qwen rodada 8: era 404, mas o recurso existe)', async () => {
       const res = await request(app.getHttpServer())
         .patch(`/companies/${companyId}/deactivate`)
         .set('x-api-key', apiKey)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(404);
+        .expect(409);
       expect(res.body.reason).toBe('company_already_inactive');
     });
 
@@ -182,12 +182,12 @@ describe('Companies (e2e)', () => {
       expect(res.body.isActive).toBe(true);
     });
 
-    it('PATCH /companies/:id/reactivate de novo -> 404 com reason "company_already_active"', async () => {
+    it('PATCH /companies/:id/reactivate de novo -> 409 com reason "company_already_active" (achado Qwen rodada 8: era 404, mas o recurso existe)', async () => {
       const res = await request(app.getHttpServer())
         .patch(`/companies/${companyId}/reactivate`)
         .set('x-api-key', apiKey)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(404);
+        .expect(409);
       expect(res.body.reason).toBe('company_already_active');
     });
   });

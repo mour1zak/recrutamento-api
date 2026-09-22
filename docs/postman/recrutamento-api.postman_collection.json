@@ -635,13 +635,13 @@
           }
         },
         {
-          "name": "PATCH /companies/:id/deactivate DE NOVO -> 404 reason 'company_already_inactive'",
+          "name": "PATCH /companies/:id/deactivate DE NOVO -> 409 reason 'company_already_inactive'",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('404 já inativa', () => pm.response.to.have.status(404));",
+                  "pm.test('409 já inativa (achado Qwen rodada 8: era 404)', () => pm.response.to.have.status(409));",
                   "pm.test(\"reason 'company_already_inactive'\", () => pm.expect(pm.response.json().reason).to.eql('company_already_inactive'));"
                 ]
               }
@@ -679,13 +679,13 @@
           }
         },
         {
-          "name": "PATCH /companies/:id/reactivate DE NOVO -> 404 reason 'company_already_active'",
+          "name": "PATCH /companies/:id/reactivate DE NOVO -> 409 reason 'company_already_active'",
           "event": [
             {
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('404 já ativa', () => pm.response.to.have.status(404));",
+                  "pm.test('409 já ativa (achado Qwen rodada 8: era 404)', () => pm.response.to.have.status(409));",
                   "pm.test(\"reason 'company_already_active'\", () => pm.expect(pm.response.json().reason).to.eql('company_already_active'));"
                 ]
               }

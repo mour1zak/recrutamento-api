@@ -25,9 +25,11 @@ describe('Jobs (e2e)', () => {
   const seedPassword = process.env.SEED_USER_PASSWORD ?? 'Senha@123';
 
   let adminToken: string;
+  let adminUserId: number;
   let candidateToken: string;
   let recruiterAToken: string;
   let recruiterBToken: string;
+  let seedRecruiterToken: string;
   let companyAId: number;
   let companyBId: number;
   const cleanupUserIds: number[] = [];
@@ -55,7 +57,18 @@ describe('Jobs (e2e)', () => {
       prisma.user.findFirstOrThrow({ where: { email: 'recrutador@recrutamento.test' }, omit: { password: false } }),
     ]);
     adminToken = adminLogin.body.accessToken;
+    adminUserId = adminLogin.body.user.id;
     candidateToken = candidateLogin.body.accessToken;
+
+    // Achado crítico Qwen rodada 8 (C1): login com o RECRUITER real do
+    // seed, não um fabricado via Prisma com `companyId` já definido — foi
+    // exatamente a fabricação manual que deixou o bug (companyId null =
+    // acesso global) invisível para a suíte anterior.
+    const seedRecruiterLogin = await request(app.getHttpServer())
+      .post('/auth/login')
+      .set('x-api-key', apiKey)
+      .send({ email: 'recrutador@recrutamento.test', password: seedPassword });
+    seedRecruiterToken = seedRecruiterLogin.body.accessToken;
 
     const [companyA, companyB] = await Promise.all([
       prisma.company.create({ data: { name: `Empresa A Jobs ${Date.now()}` } }),
@@ -249,6 +262,186 @@ describe('Jobs (e2e)', () => {
         .set('Authorization', `Bearer ${recruiterBToken}`)
         .expect(200);
       expect(res.body.data.some((j: { id: number }) => j.id === jobId)).toBe(false);
+    });
+
+    it('GET /jobs/:id (OPEN) inclui o nome da empresa (achado Qwen rodada 8, R1)', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/jobs/${jobId}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(200);
+      expect(res.body.company).toEqual({ id: companyAId, name: expect.any(String) });
+    });
+
+    it('GET /jobs (lista pública) não expõe createdById nem filledCount (achado Qwen rodada 8, R5)', async () => {
+      const res = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
+      const item = res.body.data.find((j: { id: number }) => j.id === jobId);
+      expect(item).toBeDefined();
+      expect(item.createdById).toBeUndefined();
+      expect(item.filledCount).toBeUndefined();
+      expect(item.company).toEqual({ id: companyAId, name: expect.any(String) });
+    });
+  });
+
+  /**
+   * Achado crítico Qwen rodada 8 (C1): `companyId: null` era tratado como
+   * "acesso a qualquer empresa" em `isInScope()`/`resolveCompanyIdForCreate()`
+   * — e o RECRUITER do seed nascia sem `companyId`, com senha pública. O
+   * Qwen editou, cancelou e leu vaga de outra empresa, e chegou a criar e
+   * publicar uma vaga em nome de empresa alheia, usando só a credencial
+   * documentada do seed. Corrigido: seed agora vincula o recrutador a uma
+   * empresa; `isInScope`/`resolveCompanyIdForCreate` tratam "sem empresa
+   * e não-ADMIN" como fora de escopo, igual `findMine` já fazia.
+   */
+  describe('C1 (rodada 8): recrutador do SEED nunca tem acesso global', () => {
+    let companyJobIdForSeedTest: number;
+
+    beforeAll(async () => {
+      const job = await prisma.job.create({
+        data: { title: 'Vaga da Empresa A (alvo do teste C1)', description: 'X', vacancies: 1, isRemote: true, companyId: companyAId, createdById: adminUserId },
+      });
+      companyJobIdForSeedTest = job.id;
+    });
+
+    it('PATCH numa vaga de outra empresa -> 404 (antes: 200, editava de verdade)', () => {
+      return request(app.getHttpServer())
+        .patch(`/jobs/${companyJobIdForSeedTest}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${seedRecruiterToken}`)
+        .send({ title: 'HACKEADO-PELO-SEED-RECRUITER' })
+        .expect(404);
+    });
+
+    it('PATCH status numa vaga de outra empresa -> 404 (antes: 200, cancelava de verdade)', () => {
+      return request(app.getHttpServer())
+        .patch(`/jobs/${companyJobIdForSeedTest}/status`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${seedRecruiterToken}`)
+        .send({ status: 'CANCELED' })
+        .expect(404);
+    });
+
+    it('GET (DRAFT) de vaga de outra empresa -> 404 (antes: 200)', () => {
+      return request(app.getHttpServer())
+        .get(`/jobs/${companyJobIdForSeedTest}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${seedRecruiterToken}`)
+        .expect(404);
+    });
+
+    it('POST /jobs com companyId de empresa alheia -> 404 (antes: 201, publicava vaga em nome de terceiro)', () => {
+      return request(app.getHttpServer())
+        .post('/jobs')
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${seedRecruiterToken}`)
+        .send({ title: 'Vaga Plantada', description: 'X', vacancies: 1, isRemote: true, companyId: companyAId })
+        .expect(404);
+    });
+  });
+
+  /**
+   * Achado crítico Qwen rodada 8 (C2): `updateStatus()` fazia
+   * leitura-então-escrita em passos separados — duas transições
+   * simultâneas na mesma vaga liam o mesmo status de origem, as duas
+   * passavam na validação, e a última escrita vencia, sobrescrevendo um
+   * estado TERMINAL (`CANCELED`) em 52% das corridas medidas pelo Qwen.
+   * Corrigido com `updateMany` condicionado ao status lido — a segunda
+   * escrita perde de verdade, nunca aplica por cima silenciosamente.
+   */
+  describe('C2 (rodada 8): duas transições simultâneas nunca sobrescrevem um estado terminal', () => {
+    it('OPEN -> {CANCELED, PAUSED} simultâneos: exatamente uma vence, e o banco reflete só ela', async () => {
+      const job = await prisma.job.create({
+        data: { title: 'Vaga Concorrência', description: 'X', vacancies: 1, isRemote: true, companyId: companyAId, createdById: adminUserId, status: 'OPEN' },
+      });
+
+      const [r1, r2] = await Promise.all([
+        request(app.getHttpServer())
+          .patch(`/jobs/${job.id}/status`)
+          .set('x-api-key', apiKey)
+          .set('Authorization', `Bearer ${recruiterAToken}`)
+          .send({ status: 'CANCELED' }),
+        request(app.getHttpServer())
+          .patch(`/jobs/${job.id}/status`)
+          .set('x-api-key', apiKey)
+          .set('Authorization', `Bearer ${recruiterAToken}`)
+          .send({ status: 'PAUSED' }),
+      ]);
+
+      const statuses = [r1.status, r2.status];
+      expect(statuses.every((s) => s === 200 || s === 409 || s === 400)).toBe(true);
+      expect(statuses.filter((s) => s === 200).length).toBe(1);
+
+      const winnerStatus = r1.status === 200 ? 'CANCELED' : 'PAUSED';
+      const fresh = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+      expect(fresh.status).toBe(winnerStatus);
+
+      await prisma.job.delete({ where: { id: job.id } });
+    });
+  });
+
+  /**
+   * Achado crítico Qwen rodada 8 (C3): só o ramo ADMIN de
+   * `resolveCompanyIdForCreate` checava `company.isActive` — um
+   * RECRUITER de empresa desativada continuava criando, editando e
+   * publicando vagas normalmente (a vaga aparecia na vitrine pública),
+   * enquanto `GET /companies/:id` já dizia "não encontrada" pra essa
+   * mesma empresa. Decisão aplicada: `isActive` da empresa é checada em
+   * toda ESCRITA de vaga (create/update/updateStatus); leituras de vagas
+   * já `OPEN` não são afetadas retroativamente.
+   */
+  describe('C3 (rodada 8): recrutador de empresa desativada não opera mais vagas', () => {
+    let inactiveCompanyRecruiterToken: string;
+    let openJobOfInactiveCompanyId: number;
+
+    beforeAll(async () => {
+      const [recruiterRole, seedRecruiter] = await Promise.all([
+        prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.RECRUITER } }),
+        prisma.user.findFirstOrThrow({ where: { email: 'recrutador@recrutamento.test' }, omit: { password: false } }),
+      ]);
+      const company = await prisma.company.create({ data: { name: `Empresa Será Desativada ${Date.now()}` } });
+      cleanupCompanyIds.push(company.id);
+
+      const recruiter = await prisma.user.create({
+        data: { name: 'Recrutador Empresa Desativada', email: `recrutador-desativada-${Date.now()}@example.com`, password: seedRecruiter.password, roleId: recruiterRole.id, companyId: company.id },
+      });
+      cleanupUserIds.push(recruiter.id);
+
+      const openJob = await prisma.job.create({
+        data: { title: 'Vaga já aberta antes da desativação', description: 'X', vacancies: 1, isRemote: true, companyId: company.id, createdById: adminUserId, status: 'OPEN' },
+      });
+      openJobOfInactiveCompanyId = openJob.id;
+
+      const login = await request(app.getHttpServer()).post('/auth/login').set('x-api-key', apiKey).send({ email: recruiter.email, password: seedPassword });
+      inactiveCompanyRecruiterToken = login.body.accessToken;
+
+      await request(app.getHttpServer())
+        .patch(`/companies/${company.id}/deactivate`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .expect(200);
+    });
+
+    it('POST /jobs pelo recrutador da empresa desativada -> 404 (antes: 201)', () => {
+      return request(app.getHttpServer())
+        .post('/jobs')
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${inactiveCompanyRecruiterToken}`)
+        .send({ title: 'Vaga Empresa Desativada', description: 'X', vacancies: 1, isRemote: true })
+        .expect(404);
+    });
+
+    it('PATCH /jobs/:id/status (DRAFT->OPEN) pelo recrutador da empresa desativada -> 404 (antes: 200, publicava)', () => {
+      return request(app.getHttpServer())
+        .patch(`/jobs/${openJobOfInactiveCompanyId}/status`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${inactiveCompanyRecruiterToken}`)
+        .send({ status: 'PAUSED' })
+        .expect(404);
+    });
+
+    it('vaga já OPEN da empresa desativada continua visível na vitrine pública (decisão registrada: sem cascata retroativa)', async () => {
+      const res = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
+      expect(res.body.data.some((j: { id: number }) => j.id === openJobOfInactiveCompanyId)).toBe(true);
     });
   });
 });

@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY } from '../decorators/permissions.decorator.js';
 import type { PermissionKey } from '../constants/permissions.constants.js';
 import type { AuthenticatedUser } from '../types/authenticated-user.js';
+import { errorBody } from '../exceptions/error-body.util.js';
 
 /**
  * Precisa de `request.user` já preenchido pelo JwtAuthGuard. Isso só é
@@ -39,7 +40,12 @@ export class PermissionsGuard implements CanActivate {
     const user: AuthenticatedUser | undefined = context.switchToHttp().getRequest().user;
 
     if (!user || !required.every((permission) => user.permissions.includes(permission))) {
-      throw new ForbiddenException('Você não tem permissão para executar esta ação.');
+      // Achado Qwen rodada 8 (ressalva 6): rotas de domínio devolviam
+      // `404`/`409` com `reason` machine-readable, mas o `403` (que vem
+      // deste guard global, compartilhado por Auth/Users/domínio) não
+      // tinha nenhum — contrato incompleto. `permission_denied` fecha a
+      // lacuna sem tocar no texto da `message` já existente.
+      throw new ForbiddenException(errorBody(403, 'permission_denied', 'Você não tem permissão para executar esta ação.'));
     }
 
     return true;

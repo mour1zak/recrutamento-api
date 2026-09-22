@@ -2,15 +2,7 @@ import { ArgumentsHost, Catch, HttpStatus, UnauthorizedException } from '@nestjs
 import { BaseExceptionFilter } from '@nestjs/core';
 import type { Response } from 'express';
 import { Prisma } from '../../generated/prisma/client.js';
-
-const STATUS_TEXT: Record<number, string> = {
-  [HttpStatus.BAD_REQUEST]: 'Bad Request',
-  [HttpStatus.UNAUTHORIZED]: 'Unauthorized',
-  [HttpStatus.NOT_FOUND]: 'Not Found',
-  [HttpStatus.CONFLICT]: 'Conflict',
-  [HttpStatus.SERVICE_UNAVAILABLE]: 'Service Unavailable',
-  [HttpStatus.INTERNAL_SERVER_ERROR]: 'Internal Server Error',
-};
+import { STATUS_TEXT } from '../exceptions/error-body.util.js';
 
 // Nome real da constraint (ver migration.sql) -> rótulo amigável. Nunca
 // devolver o nome cru do índice pro cliente — isso divulga estrutura

@@ -97,6 +97,51 @@ Dois achados corrigidos, ambos fora do comportamento da API:
   que uma fila de `FOR UPDATE` pode produzir) — sem alterar a migration
   agora, só o `GlobalExceptionFilter`. Testado com o mesmo repro do Qwen.
 
+## Adendo rodada 8 — REPROVADO → corrigido (Fase 3: Domínio, Companies + Jobs)
+
+Primeira auditoria sobre código de domínio de negócio (não mais só
+Auth/RBAC). **REPROVADO** com 3 críticos, todos corrigidos e
+reverificados por execução — inclusive contra o servidor de dev,
+reproduzindo o ataque exato do relatório. Ver
+`PARECER-QWEN-FASE3-DOMINIO-RODADA8.md` e `TRIAGEM-REVISOES-RODADA8.md`
+para o relato completo.
+
+- **C1 — regra obrigatória "recruiter só opera vagas da própria empresa"
+  quebrada de ponta a ponta.** `companyId: null` era tratado como acesso
+  global em duas das três funções de escopo de `JobsService`, e o
+  RECRUITER do seed nascia sem `companyId` (senha pública). Corrigido:
+  função única `hasJobScope()` usada em todo lugar; seed vincula o
+  RECRUITER a uma empresa; teste com o usuário real do seed (não
+  fabricado).
+- **C2 — corrida check-then-write sobrescrevia estado terminal da vaga**
+  (`CANCELED` virava `PAUSED` em 52% de 25 corridas medidas). Corrigido
+  com o mesmo primitivo do `refresh()` da Fase 2: `updateMany`
+  condicionado ao estado lido, `409` se outra transição já mudou o
+  status.
+- **C3 — empresa desativada não impedia seus recrutadores de continuar
+  criando/editando/publicando vagas**, que apareciam na vitrine pública
+  mesmo com `GET /companies/:id` respondendo `404`. Corrigido: `isActive`
+  da empresa checado em toda escrita de vaga (create/update/updateStatus);
+  leitura de vagas já `OPEN` não é afetada retroativamente (decisão
+  explícita, registrada).
+
+Também corrigido no contrato de erro (ressalva, não crítico): `403`
+ganhou `reason: "permission_denied"`; `company_already_inactive`/
+`company_already_active` migraram de `404` para `409` (o recurso existe,
+o conflito é de estado); os dois formatos de `409` (com/sem campo
+`error`) foram unificados.
+
+Ressalvas fechadas na mesma rodada (baratas, resolvidas junto): R1
+(`GET /jobs*` agora inclui `company: {id, name}`), R3 (`search` escapa
+curingas de `LIKE`), R4 (`OPEN→CLOSED` reincluído na máquina de estados,
+alinhando com o comentário do enum no schema), R5 (vitrine pública não
+expõe mais `createdById`/`filledCount`).
+
+**Adiado, registrado:** R2 (listagem pública sem JWT vs. detalhe exigindo
+JWT — decisão de UX, não de segurança, antes da Fase 5);
+`RECRUITER ⇒ companyId NOT NULL` como invariante de banco
+(`FEEDBACKS-MELHORIA.md` #16 — recomendado antes do Gate Fase 3 abaixo).
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem

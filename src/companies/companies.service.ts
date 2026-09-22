@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CepService } from '../common/cep/cep.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
@@ -71,7 +71,14 @@ export class CompaniesService {
       throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
     }
     if (!company.isActive) {
-      throw new NotFoundException(errorBody(404, 'company_already_inactive', 'Empresa já está inativa.'));
+      // Achado Qwen rodada 8 (ressalva 6): o recurso EXISTE — o problema
+      // é de estado, não de existência. Pela política do próprio projeto
+      // (404 = não existe/é de terceiro; 409 = regra de negócio), isto é
+      // 409, não 404. Como `404` era o único lugar em que o `reason`
+      // permitia distinguir "não existe" de "existe e está inativa", a
+      // troca também fecha um canal de enumeração (baixa severidade, já
+      // que a rota é só ADMIN, mas o defeito de contrato era o mesmo).
+      throw new ConflictException(errorBody(409, 'company_already_inactive', 'Empresa já está inativa.'));
     }
 
     // Achado Qwen rodada 3 (C5): desativar empresa é soft-delete, nunca
@@ -89,7 +96,9 @@ export class CompaniesService {
       throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
     }
     if (company.isActive) {
-      throw new NotFoundException(errorBody(404, 'company_already_active', 'Empresa já está ativa.'));
+      // Mesmo raciocínio do `deactivate()` acima (achado Qwen rodada 8,
+      // ressalva 6): recurso existe, é conflito de estado -> 409.
+      throw new ConflictException(errorBody(409, 'company_already_active', 'Empresa já está ativa.'));
     }
 
     return this.prisma.company.update({ where: { id }, data: { isActive: true } });

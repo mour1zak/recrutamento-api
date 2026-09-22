@@ -345,6 +345,32 @@ desenvolvimento — por isso não foi criado sem alinhar antes com o
 usuário, seguindo o mesmo cuidado já aplicado a outras mudanças
 destrutivas deste projeto.
 
+## 16. Invariante de banco: `RECRUITER ⇒ companyId NOT NULL`
+
+**O quê:** um trigger (`BEFORE INSERT OR UPDATE ON "User"`) recusando
+gravar um usuário com papel `RECRUITER` e `companyId IS NULL`.
+
+**Por quê:** sugestão do Qwen (rodada 8, achado C1) — o bug do RECRUITER
+do seed sem empresa (acesso global a vagas de qualquer empresa) só foi
+possível porque nada no banco impedia esse estado. A correção da rodada
+8 fecha o Service e o seed, mas se algum código futuro criar um
+RECRUITER por outro caminho (ex.: o `PATCH /users/:id/role` do mapa do
+DeepSeek, ainda não implementado) sem passar pelas mesmas checagens, o
+mesmo bug pode voltar em silêncio.
+
+**Por que não foi feito na hora:** `CHECK` do Postgres não suporta
+subquery entre tabelas (não dá pra checar `role.name` direto num `CHECK`
+de `User`) — precisa de um trigger com função `plpgsql`, que é uma
+migration mais elaborada que as outras correções desta rodada. O Qwen
+classificou como "idealmente" (desejável, não bloqueante pra reaprovação).
+
+**Custo estimado:** baixo-médio — uma função + um trigger, testável com
+`INSERT`/`UPDATE` direto via SQL.
+
+**Status:** 🟡 Registrado. Recomendado antes do Gate Fase 3
+(concorrência) ou antes de implementar `PATCH /users/:id/role`, o que
+vier primeiro.
+
 ---
 
 _Este arquivo é vivo: novos itens entram aqui sempre que identificarmos algo

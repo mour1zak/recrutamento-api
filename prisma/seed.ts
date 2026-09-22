@@ -71,6 +71,20 @@ async function main() {
     }
   }
 
+  console.log('Seed: criando empresa do recrutador...');
+
+  // Achado crítico Qwen rodada 8 (C1): um RECRUITER sem `companyId`
+  // (como este seed criava antes) tinha, na prática, acesso GLOBAL a
+  // vagas de qualquer empresa — `isInScope()`/`resolveCompanyIdForCreate()`
+  // tratavam `companyId: null` como "sem restrição", e esse usuário tem
+  // senha pública (`SEED_USER_PASSWORD`). Todo RECRUITER real precisa
+  // nascer com empresa.
+  const seedCompany = await prisma.company.upsert({
+    where: { cnpj: '00000000000191' },
+    update: {},
+    create: { name: 'Empresa Seed', cnpj: '00000000000191' },
+  });
+
   console.log('Seed: criando um usuário de cada papel (senha definida via SEED_USER_PASSWORD, não impressa aqui)...');
 
   const passwordHash = await hashPassword(SEED_USER_PASSWORD);
@@ -88,12 +102,13 @@ async function main() {
 
   const recruiter = await prisma.user.upsert({
     where: { email: 'recrutador@recrutamento.test' },
-    update: {},
+    update: { companyId: seedCompany.id },
     create: {
       name: 'Recrutador Um',
       email: 'recrutador@recrutamento.test',
       password: passwordHash,
       roleId: roleByName.get(SYSTEM_ROLES.RECRUITER)!.id,
+      companyId: seedCompany.id,
     },
   });
 

@@ -1,16 +1,17 @@
 # Plataforma de Recrutamento — API (AV-04)
 
 > **Status atual: Fase 2 (Auth/RBAC) fechada de vez na Rodada 7 pelo
-> Qwen** (APROVADO COM RESSALVAS) — ver `docs/fases/`. Auth completo
-> (registro/login/refresh/logout), RBAC dinâmico funcionando de ponta a
-> ponta, filtro global de exceções. Módulos `Companies` e `Jobs`
-> implementados (CRUD completo, transições de status, integração externa
-> de CEP obrigatória do enunciado). 49 testes automatizados verdes — 9 dos
-> 10 cenários obrigatórios de teste já cobertos. O DeepSeek já entregou o
-> mapa dos 41 endpoints do restante do domínio (Application/
-> CandidateProfile/Interview/Document/Users/RBAC Nível B) — implementação
-> em andamento. Este README é atualizado a cada fase concluída —
-> documento histórico da avaliação, não tarefa de
+> Qwen** (APROVADO COM RESSALVAS) — ver `docs/fases/`. Módulos
+> `Companies` e `Jobs` auditados na Rodada 8 (**REPROVADO** — 3 críticos
+> de isolamento entre empresas e concorrência, todos corrigidos e
+> reverificados por execução, reapresentação em andamento). Auth
+> completo, RBAC dinâmico de ponta a ponta, filtro global de exceções,
+> integração externa de CEP obrigatória do enunciado. **59 testes
+> automatizados verdes** — 9 dos 10 cenários obrigatórios de teste já
+> cobertos. O DeepSeek já entregou o mapa dos 41 endpoints do restante do
+> domínio (Application/CandidateProfile/Interview/Document/Users/RBAC
+> Nível B) — implementação em andamento. Este README é atualizado a cada
+> fase concluída — documento histórico da avaliação, não tarefa de
 > última hora.
 
 ## 1. Objetivo
@@ -222,21 +223,22 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **32 testes automatizados, todos
-verdes** (28 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
-`test/companies.e2e-spec.ts`, 4 unitários em `src/app.controller.spec.ts`
-+ `src/common/cep/cep.service.spec.ts`), cobrindo os cenários
-obrigatórios de auth (400/401/409, fluxo completo de registro/login/
-refresh/logout, uma rota protegida por permission key, e a trava de
-último administrador sob concorrência real — 8 admins temporários, 4
-pares de desativação mútua simultânea, nunca `500`), o CRUD completo de
-`Company` (403/404/409 com `reason` estruturado), e a integração externa
-de CEP funcionando e falhando de forma controlada (contra o ViaCEP real,
-sem mock — o único mock do projeto é o `HttpService` no teste unitário do
-`CepService`, pra provocar timeout de forma determinística). 7 dos 10
-cenários obrigatórios do enunciado já cobertos (ver §2.1); os 3 restantes
-(403/404 de dono de recurso, upload, mudança de estado completa) só têm
-onde morar quando `Application`/`Document`/`Job` existirem.
+e o teste não enviava a chave). Hoje: **59 testes automatizados, todos
+verdes** (55 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+`test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts`, 4 unitários em
+`src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts`),
+cobrindo os cenários obrigatórios de auth (400/401/409, fluxo completo de
+registro/login/refresh/logout, uma rota protegida por permission key, e a
+trava de último administrador sob concorrência real — 8 admins
+temporários, 4 pares de desativação mútua simultânea, nunca `500`), o
+CRUD completo de `Company` e `Job` (403/404/409 com `reason` estruturado,
+isolamento entre empresas testado com o usuário real do seed, corrida de
+transição de status testada com `Promise.all`), e a integração externa de
+CEP funcionando e falhando de forma controlada (contra o ViaCEP real, sem
+mock — o único mock do projeto é o `HttpService` no teste unitário do
+`CepService`, pra provocar timeout de forma determinística). 9 dos 10
+cenários obrigatórios do enunciado já cobertos (ver §2.1); falta só #8
+(upload), que depende de `Document`, ainda não implementado.
 
 ## 5. Endpoints
 
@@ -257,9 +259,9 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `POST` | `/companies` | JWT + permission `company:create` | `{name, cnpj?, description?, cep}` | `201`; `400` DTO inválido; `409` CNPJ duplicado (`reason: "cnpj_duplicado"`) |
 | `GET` | `/companies/:id` | JWT + permission `company:read` | — | `200`; `404` inexistente ou inativa |
 | `PATCH` | `/companies/:id` | JWT + permission `company:update` | `{name?, cnpj?, description?, cep?}` | `200`; `400` DTO inválido; `404` inexistente ou inativa |
-| `PATCH` | `/companies/:id/deactivate` | JWT + permission `company:delete` | — | `200` (empresa atualizada, `isActive: false`); `404` inexistente ou já inativa (`reason: "company_already_inactive"`) |
-| `PATCH` | `/companies/:id/reactivate` | JWT + permission `company:delete` | — | `200` (empresa atualizada, `isActive: true`); `404` inexistente ou já ativa (`reason: "company_already_active"`) |
-| `POST` | `/jobs` | JWT + permission `job:create` | `{title, description, vacancies, salaryMin?, salaryMax?, isRemote, companyId?}` | `201`; `400` DTO inválido ou `companyId` ausente para ADMIN; `404` `companyId` de outra empresa (RECRUITER) ou inexistente (ADMIN) |
+| `PATCH` | `/companies/:id/deactivate` | JWT + permission `company:delete` | — | `200` (empresa atualizada, `isActive: false`); `404` inexistente; `409` já inativa (`reason: "company_already_inactive"`) |
+| `PATCH` | `/companies/:id/reactivate` | JWT + permission `company:delete` | — | `200` (empresa atualizada, `isActive: true`); `404` inexistente; `409` já ativa (`reason: "company_already_active"`) |
+| `POST` | `/jobs` | JWT + permission `job:create` | `{title, description, vacancies, salaryMin?, salaryMax?, isRemote, companyId?}` | `201`; `400` DTO inválido ou `companyId` ausente para ADMIN; `404` `companyId` de outra empresa, inexistente/inativa, ou RECRUITER sem empresa própria |
 | `GET` | `/jobs` | Só API key (rota pública) | — (query `?page&limit&search`) | `200` lista só vagas `OPEN` |
 | `GET` | `/jobs/mine` | JWT + permission `job:read:any` | — (query `?status&page&limit`) | `200` vagas da própria empresa em qualquer status (ADMIN vê todas) |
 | `GET` | `/jobs/:id` | JWT + permission `job:read` | — | `200` se `OPEN`, ou se `job:read:any` + mesma empresa; `404` caso contrário |
@@ -271,7 +273,11 @@ de regra de negócio ganham um campo `reason` machine-readable além de
 `message` (ex.: `{statusCode: 409, reason: "cnpj_duplicado", message: "..."}`)
 — sugestão do Qwen/DeepSeek na Fase 2, adotada só para módulos novos. As
 rotas de `Auth`/`Users` acima mantêm o formato antigo (sem `reason`), já
-auditado, para não reabrir escopo fechado.
+auditado, para não reabrir escopo fechado. **Atualizado na rodada 8
+(Qwen):** o corpo de erro agora sempre inclui o campo `error` (achado —
+dois formatos de `409` conviviam, um com `error` e outro sem), e todo
+`403` (de qualquer rota protegida por permission key) ganhou
+`reason: "permission_denied"`.
 
 **Nota sobre `deactivate`/`reactivate`:** originalmente essas rotas
 devolviam `204` sem corpo (mesmo padrão de `DELETE`). Revisado depois de
@@ -283,11 +289,24 @@ idêntica; verificado reexecutando a suíte completa (`test/auth.e2e-spec.ts`,
 incluindo o teste de concorrência de 8 admins, e `test/companies.e2e-spec.ts`).
 
 **Nota sobre transições de status de `Job`:** `DRAFT→{OPEN,CANCELED}`,
-`OPEN→{PAUSED,FILLED,CANCELED}`, `PAUSED→{OPEN,CANCELED}`,
+`OPEN→{PAUSED,FILLED,CLOSED,CANCELED}`, `PAUSED→{OPEN,CANCELED}`,
 `FILLED→CLOSED`; `CLOSED`/`CANCELED` são terminais. `OPEN→CANCELED` foi
 uma adição nossa (não estava explícito no fluxo original do DeepSeek,
-Fase 1) — cancelar uma vaga aberta é uma necessidade óbvia de negócio,
-registrado aqui caso o Qwen discorde. `DELETE /jobs/:id` deliberadamente
-não existe: soft-delete via `PATCH /jobs/:id/status {status: "CANCELED"}`
-preserva candidaturas/entrevistas/documentos vinculados — `job:delete`
-fica reservada no catálogo (ADMIN continua com 24 keys), sem rota.
+Fase 1) — cancelar uma vaga aberta é uma necessidade óbvia de negócio.
+`OPEN→CLOSED` tinha sido removida sem registro numa versão anterior,
+contradizendo o comentário do próprio enum em `schema.prisma`
+("`CLOSED`: encerrada definitivamente **sem** preencher todas as vagas")
+— achado Qwen rodada 8 (R4), reincluída. `DELETE /jobs/:id`
+deliberadamente não existe: soft-delete via
+`PATCH /jobs/:id/status {status: "CANCELED"}` preserva candidaturas/
+entrevistas/documentos vinculados — `job:delete` fica reservada no
+catálogo (ADMIN continua com 24 keys), sem rota.
+
+**Nota sobre `company` embutida nas respostas de vaga (achado Qwen
+rodada 8, R1):** `GET /jobs`, `GET /jobs/:id` e `GET /jobs/mine` sempre
+trazem `company: {id, name}` — antes o candidato via só `companyId` cru,
+sem nenhuma rota que resolvesse isso num nome. A listagem pública
+(`GET /jobs`) usa um `select` dedicado que **não** inclui `createdById`
+nem `filledCount` (achado R5 — nenhum dos dois pertence a uma vitrine
+pública); as rotas autenticadas (`/jobs/mine`, `/jobs/:id`) continuam com
+os campos completos.

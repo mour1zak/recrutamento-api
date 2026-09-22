@@ -207,7 +207,8 @@ describe('Auth (e2e)', () => {
      * que o filtro de exceções antigo reconhecia). Este teste dispara
      * várias desativações mútuas simultâneas — o cenário que gera
      * contenção real no agregado "quantos admins estão ativos" — e
-     * garante que toda resposta é `204` ou `409`, nunca `500`.
+     * garante que toda resposta é `200` (sucesso, com o usuário
+     * atualizado no corpo) ou `409`, nunca `500`.
      */
     it('desativações mútuas simultâneas entre vários admins nunca respondem 500', async () => {
       const prisma = app.get(PrismaService);
@@ -273,7 +274,9 @@ describe('Auth (e2e)', () => {
           console.error('Respostas 5xx encontradas:', JSON.stringify(results, null, 2));
         }
         expect(has500).toBe(false);
-        expect(statuses.every((s) => s === 204 || s === 409)).toBe(true);
+        // 200 (não mais 204): deactivate agora devolve o usuário
+        // atualizado, decisão pós-Fase-2 pensando no frontend.
+        expect(statuses.every((s) => s === 200 || s === 409)).toBe(true);
 
         // Nunca zero admins ativos, mesmo sob essa carga.
         const activeAdminsAfter = await prisma.user.count({ where: { roleId: adminRole.id, isActive: true } });

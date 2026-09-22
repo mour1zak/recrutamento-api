@@ -147,12 +147,13 @@ describe('Companies (e2e)', () => {
       expect(res.body.name).toBe('Empresa Renomeada');
     });
 
-    it('PATCH /companies/:id/deactivate -> 204', () => {
-      return request(app.getHttpServer())
+    it('PATCH /companies/:id/deactivate -> 200, isActive: false no corpo', async () => {
+      const res = await request(app.getHttpServer())
         .patch(`/companies/${companyId}/deactivate`)
         .set('x-api-key', apiKey)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(204);
+        .expect(200);
+      expect(res.body.isActive).toBe(false);
     });
 
     it('GET /companies/:id de empresa inativa -> 404 (tratada como inexistente pra leitura)', () => {
@@ -172,12 +173,13 @@ describe('Companies (e2e)', () => {
       expect(res.body.reason).toBe('company_already_inactive');
     });
 
-    it('PATCH /companies/:id/reactivate -> 204', () => {
-      return request(app.getHttpServer())
+    it('PATCH /companies/:id/reactivate -> 200, isActive: true no corpo', async () => {
+      const res = await request(app.getHttpServer())
         .patch(`/companies/${companyId}/reactivate`)
         .set('x-api-key', apiKey)
         .set('Authorization', `Bearer ${adminToken}`)
-        .expect(204);
+        .expect(200);
+      expect(res.body.isActive).toBe(true);
     });
 
     it('PATCH /companies/:id/reactivate de novo -> 404 com reason "company_already_active"', async () => {

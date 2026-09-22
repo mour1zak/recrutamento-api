@@ -3,13 +3,14 @@
 > **Status atual: Fase 2 (Auth/RBAC) fechada de vez na Rodada 7 pelo
 > Qwen** (APROVADO COM RESSALVAS) — ver `docs/fases/`. Auth completo
 > (registro/login/refresh/logout), RBAC dinâmico funcionando de ponta a
-> ponta, filtro global de exceções. Módulo `Companies` implementado
-> (primeiro de domínio além de Auth/Users), incluindo a integração
-> externa de CEP obrigatória do enunciado. 32 testes automatizados
-> verdes. O DeepSeek já entregou o mapa dos 41 endpoints do restante do
-> domínio (Job/Application/CandidateProfile/Interview/Document/Users/RBAC
-> Nível B) — implementação em andamento. Este README é atualizado a cada
-> fase concluída — documento histórico da avaliação, não tarefa de
+> ponta, filtro global de exceções. Módulos `Companies` e `Jobs`
+> implementados (CRUD completo, transições de status, integração externa
+> de CEP obrigatória do enunciado). 49 testes automatizados verdes — 9 dos
+> 10 cenários obrigatórios de teste já cobertos. O DeepSeek já entregou o
+> mapa dos 41 endpoints do restante do domínio (Application/
+> CandidateProfile/Interview/Document/Users/RBAC Nível B) — implementação
+> em andamento. Este README é atualizado a cada fase concluída —
+> documento histórico da avaliação, não tarefa de
 > última hora.
 
 ## 1. Objetivo
@@ -36,7 +37,7 @@ deixamos isso implícito no código._
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
-| CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate) e `Company` (CRUD completo) implementados; demais entidades ainda não |
+| CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate), `Company` (CRUD completo) e `Job` (CRUD + transições de status) implementados; demais entidades ainda não |
 | Consultas por relacionamento | ⬜ Não iniciado |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
@@ -45,7 +46,7 @@ deixamos isso implícito no código._
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
-| Testes obrigatórios (10 cenários do enunciado) | 🟡 7 de 10 cobertos por teste automatizado: #1 fluxo com sucesso, #2 body inválido, #3 ausência/token inválido, #4 sem permissão, #5 recurso inexistente, #6 conflito de negócio (`test/auth.e2e-spec.ts`, `test/companies.e2e-spec.ts`), #9 integração externa funcionando e falhando de forma controlada (CEP real, sem mock, `test/companies.e2e-spec.ts`). Faltam: #7 acesso a recurso de terceiro, #8 upload válido/inválido, #10 fluxo completo de mudança de estado (dependem de `Application`/`Document`/`Job` ainda não implementados) |
+| Testes obrigatórios (10 cenários do enunciado) | 🟡 9 de 10 cobertos por teste automatizado: #1 fluxo com sucesso, #2 body inválido, #3 ausência/token inválido, #4 sem permissão, #5 recurso inexistente, #6 conflito de negócio (`test/auth.e2e-spec.ts`, `test/companies.e2e-spec.ts`, `test/jobs.e2e-spec.ts`), #7 acesso a recurso de terceiro (recrutador de uma empresa tentando ler/alterar vaga de outra, `test/jobs.e2e-spec.ts`), #9 integração externa funcionando e falhando de forma controlada (CEP real, sem mock), #10 fluxo completo de mudança de estado (`DRAFT→OPEN→FILLED`, `test/jobs.e2e-spec.ts`). Falta só: #8 upload válido/inválido (depende de `Document`, ainda não implementado) |
 
 ### 2.2 Bônus (só depois do obrigatório)
 
@@ -251,13 +252,19 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `POST` | `/auth/login` | Só API key | `{email, password}` | `200` (tokens); `401` credenciais inválidas |
 | `POST` | `/auth/refresh` | Só API key | `{refreshToken}` | `200` (novo par de tokens); `401` token inválido/expirado/já usado |
 | `POST` | `/auth/logout` | JWT | `{refreshToken}` | `204`; `401` sem JWT/JWT inválido |
-| `PATCH` | `/users/:id/deactivate` | JWT + permission `user:manage` | — | `204`; `403` sem a permissão; `404` usuário inexistente; `409` alvo é a própria conta, o último ADMIN ativo, ou conflito de concorrência (tente novamente) |
-| `PATCH` | `/users/:id/reactivate` | JWT + permission `user:manage` | — | `204` (idempotente); `403` sem a permissão; `404` usuário inexistente |
+| `PATCH` | `/users/:id/deactivate` | JWT + permission `user:manage` | — | `200` (usuário atualizado, `isActive: false`); `403` sem a permissão; `404` usuário inexistente; `409` alvo é a própria conta, o último ADMIN ativo, ou conflito de concorrência (tente novamente) |
+| `PATCH` | `/users/:id/reactivate` | JWT + permission `user:manage` | — | `200` (usuário atualizado, `isActive: true`, idempotente); `403` sem a permissão; `404` usuário inexistente |
 | `POST` | `/companies` | JWT + permission `company:create` | `{name, cnpj?, description?, cep}` | `201`; `400` DTO inválido; `409` CNPJ duplicado (`reason: "cnpj_duplicado"`) |
 | `GET` | `/companies/:id` | JWT + permission `company:read` | — | `200`; `404` inexistente ou inativa |
 | `PATCH` | `/companies/:id` | JWT + permission `company:update` | `{name?, cnpj?, description?, cep?}` | `200`; `400` DTO inválido; `404` inexistente ou inativa |
-| `PATCH` | `/companies/:id/deactivate` | JWT + permission `company:delete` | — | `204`; `404` inexistente ou já inativa (`reason: "company_already_inactive"`) |
-| `PATCH` | `/companies/:id/reactivate` | JWT + permission `company:delete` | — | `204`; `404` inexistente ou já ativa (`reason: "company_already_active"`) |
+| `PATCH` | `/companies/:id/deactivate` | JWT + permission `company:delete` | — | `200` (empresa atualizada, `isActive: false`); `404` inexistente ou já inativa (`reason: "company_already_inactive"`) |
+| `PATCH` | `/companies/:id/reactivate` | JWT + permission `company:delete` | — | `200` (empresa atualizada, `isActive: true`); `404` inexistente ou já ativa (`reason: "company_already_active"`) |
+| `POST` | `/jobs` | JWT + permission `job:create` | `{title, description, vacancies, salaryMin?, salaryMax?, isRemote, companyId?}` | `201`; `400` DTO inválido ou `companyId` ausente para ADMIN; `404` `companyId` de outra empresa (RECRUITER) ou inexistente (ADMIN) |
+| `GET` | `/jobs` | Só API key (rota pública) | — (query `?page&limit&search`) | `200` lista só vagas `OPEN` |
+| `GET` | `/jobs/mine` | JWT + permission `job:read:any` | — (query `?status&page&limit`) | `200` vagas da própria empresa em qualquer status (ADMIN vê todas) |
+| `GET` | `/jobs/:id` | JWT + permission `job:read` | — | `200` se `OPEN`, ou se `job:read:any` + mesma empresa; `404` caso contrário |
+| `PATCH` | `/jobs/:id` | JWT + permission `job:update` | `{title?, description?, vacancies?, salaryMin?, salaryMax?, isRemote?}` | `200`; `400` DTO; `404` fora do escopo; `409` `vacancies` abaixo do já preenchido (`reason: "vacancies_below_filled_count"`) |
+| `PATCH` | `/jobs/:id/status` | JWT + permission `job:status:update` | `{status}` | `200`; `400` transição inválida (`reason: "invalid_status_transition"`); `404` fora do escopo; `409` `FILLED` sem preencher todas as vagas (`reason: "job_not_fully_filled"`) |
 
 **Nota sobre formato de erro:** a partir de `Companies`, respostas `404`/`409`
 de regra de negócio ganham um campo `reason` machine-readable além de
@@ -265,3 +272,22 @@ de regra de negócio ganham um campo `reason` machine-readable além de
 — sugestão do Qwen/DeepSeek na Fase 2, adotada só para módulos novos. As
 rotas de `Auth`/`Users` acima mantêm o formato antigo (sem `reason`), já
 auditado, para não reabrir escopo fechado.
+
+**Nota sobre `deactivate`/`reactivate`:** originalmente essas rotas
+devolviam `204` sem corpo (mesmo padrão de `DELETE`). Revisado depois de
+`Company` existir, pensando no frontend: `200` com o recurso atualizado
+evita uma chamada `GET` extra só para confirmar `isActive`. Mudança só de
+contrato de resposta — a lógica de negócio já auditada (trava de último
+admin, revogação de refresh tokens, ordem de checagem 404→409) continua
+idêntica; verificado reexecutando a suíte completa (`test/auth.e2e-spec.ts`,
+incluindo o teste de concorrência de 8 admins, e `test/companies.e2e-spec.ts`).
+
+**Nota sobre transições de status de `Job`:** `DRAFT→{OPEN,CANCELED}`,
+`OPEN→{PAUSED,FILLED,CANCELED}`, `PAUSED→{OPEN,CANCELED}`,
+`FILLED→CLOSED`; `CLOSED`/`CANCELED` são terminais. `OPEN→CANCELED` foi
+uma adição nossa (não estava explícito no fluxo original do DeepSeek,
+Fase 1) — cancelar uma vaga aberta é uma necessidade óbvia de negócio,
+registrado aqui caso o Qwen discorde. `DELETE /jobs/:id` deliberadamente
+não existe: soft-delete via `PATCH /jobs/:id/status {status: "CANCELED"}`
+preserva candidaturas/entrevistas/documentos vinculados — `job:delete`
+fica reservada no catálogo (ADMIN continua com 24 keys), sem rota.

@@ -123,12 +123,17 @@ export class UsersService {
    * sobre múltiplas linhas, não de uma única linha como o `filledCount`,
    * o que tornaria o padrão condicional mais complexo de expressar aqui.
    */
-  async deactivate(targetId: number, currentUserId: number): Promise<void> {
+  async deactivate(targetId: number, currentUserId: number) {
     if (targetId === currentUserId) {
       throw new ConflictException('Você não pode desativar a própria conta.');
     }
 
-    await this.prisma.$transaction(
+    // Devolve o usuário atualizado (decisão pós-Fase-2, pensando no
+    // frontend): quem chama a rota vê na resposta que `isActive` virou
+    // `false`, sem precisar de um GET extra pra confirmar. `password`
+    // continua nunca saindo — `omit` global no PrismaService cobre
+    // qualquer retorno de `user`, não só os `select` explícitos.
+    return this.prisma.$transaction(
       async (tx) => {
         const target = await tx.user.findUnique({
           where: { id: targetId },
@@ -147,11 +152,12 @@ export class UsersService {
           }
         }
 
-        await tx.user.update({ where: { id: targetId }, data: { isActive: false } });
+        const updated = await tx.user.update({ where: { id: targetId }, data: { isActive: false } });
         await tx.refreshToken.updateMany({
           where: { userId: targetId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
+        return updated;
       },
       { isolationLevel: 'Serializable' },
     );
@@ -165,12 +171,12 @@ export class UsersService {
    * ativo (idempotente, mesmo padrão de `deactivate`, já validado por
    * auditoria).
    */
-  async reactivate(targetId: number): Promise<void> {
+  async reactivate(targetId: number) {
     const target = await this.prisma.user.findUnique({ where: { id: targetId } });
     if (!target) {
       throw new NotFoundException('Usuário não encontrado.');
     }
-    await this.prisma.user.update({ where: { id: targetId }, data: { isActive: true } });
+    return this.prisma.user.update({ where: { id: targetId }, data: { isActive: true } });
   }
 
   private toAuthenticatedUser(user: {

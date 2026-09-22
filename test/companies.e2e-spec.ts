@@ -70,7 +70,18 @@ describe('Companies (e2e)', () => {
       .expect(400);
   });
 
-  it('POST /companies com CEP válido (real, sem mock) -> 201, endereço enriquecido', async () => {
+  // Achado Qwen rodada 10 (ressalva 5): esta asserção era estrita
+  // (`city` precisava ser exatamente "São Paulo"), dependendo do ViaCEP
+  // real responder dentro do timeout — medido pelo Qwen: 2 falhas em ~9
+  // execuções completas da suíte, latência de ~1.1s contra timeout de 3s
+  // com specs rodando em paralelo. Como `CepService` engole qualquer
+  // falha e devolve `null`, uma instabilidade de rede aparecia como
+  // "asserção de negócio errada" — o pior diagnóstico possível. Agora só
+  // o CONTRATO é verificado aqui (sucesso, nunca bloqueia, CEP salvo); o
+  // enriquecimento determinístico já é coberto por `cep.service.spec.ts`
+  // com `HttpService` mockado (sucesso e timeout), sem depender do
+  // provedor externo estar disponível no instante do teste.
+  it('POST /companies com CEP válido (real, sem mock) -> 201, nunca bloqueia mesmo se o provedor estiver instável', async () => {
     const res = await request(app.getHttpServer())
       .post('/companies')
       .set('x-api-key', apiKey)
@@ -79,8 +90,7 @@ describe('Companies (e2e)', () => {
       .expect(201);
 
     expect(res.body.cep).toBe('01310-100');
-    expect(res.body.street).toBeTruthy();
-    expect(res.body.city).toBe('São Paulo');
+    expect(res.body.city === null || typeof res.body.city === 'string').toBe(true);
   });
 
   it('POST /companies com CEP inexistente (real, sem mock) -> 201 mesmo assim, endereço em branco', async () => {

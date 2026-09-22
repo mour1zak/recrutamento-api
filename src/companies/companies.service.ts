@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { CepService } from '../common/cep/cep.service.js';
+import { CepService, isResolvedAddress } from '../common/cep/cep.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { CreateCompanyDto } from './dto/create-company.dto.js';
 import { UpdateCompanyDto } from './dto/update-company.dto.js';
@@ -50,6 +50,11 @@ export class CompaniesService {
     await this.findActiveOrThrow(id);
 
     const address = dto.cep ? await this.cepService.resolve(dto.cep) : undefined;
+    // Achado Qwen rodada 10 (ressalva 1, mesmo padrão de
+    // CandidateProfile): uma falha transitória do ViaCEP durante um
+    // UPDATE não pode apagar um endereço bom já salvo — só sobrescreve
+    // se a consulta realmente resolveu algo.
+    const resolvedAddress = address && isResolvedAddress(address) ? address : undefined;
 
     return this.prisma.company.update({
       where: { id },
@@ -58,9 +63,7 @@ export class CompaniesService {
         cnpj: dto.cnpj ? normalizeCnpj(dto.cnpj) : undefined,
         description: dto.description,
         cep: dto.cep,
-        street: address?.street,
-        city: address?.city,
-        state: address?.state,
+        ...(resolvedAddress ? { street: resolvedAddress.street, city: resolvedAddress.city, state: resolvedAddress.state } : {}),
       },
     });
   }

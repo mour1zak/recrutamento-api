@@ -6,9 +6,12 @@
 > depois de reprovação na Rodada 8 por 3 críticos de isolamento entre
 > empresas e concorrência — todos corrigidos e reverificados sob carga
 > maior, 0 violações em 96+ execuções concorrentes). `CandidateProfile`
-> implementado (ainda não auditado pelo Qwen). Auth completo, RBAC
+> reprovado na Rodada 10 (2 críticos de vazamento de PII — recrutador de
+> empresa desativada lendo perfil completo, e status `REJECTED`/
+> `WITHDRAWN` destravando dados completos indevidamente) e já corrigido,
+> aguardando reapresentação. Auth completo, RBAC
 > dinâmico de ponta a ponta, filtro global de exceções, integração
-> externa de CEP obrigatória do enunciado. **72 testes automatizados
+> externa de CEP obrigatória do enunciado. **79 testes automatizados
 > verdes** — 9 dos 10 cenários obrigatórios de teste já cobertos. O
 > DeepSeek já entregou o mapa dos 41 endpoints do restante do domínio
 > (Application/Interview/Document/Users/RBAC Nível B) — implementação em
@@ -41,7 +44,7 @@ deixamos isso implícito no código._
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
 | CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate), `Company` (CRUD completo), `Job` (CRUD + transições de status) e `CandidateProfile` (leitura/atualização com visibilidade condicional) implementados; `Application`/`Interview`/`Document` ainda não |
-| Consultas por relacionamento | ⬜ Não iniciado |
+| Consultas por relacionamento | 🟡 `GET /jobs*` já traz `company:{id,name}`; visibilidade de `CandidateProfile` atravessa `Application → Job → Company` (achado Qwen rodada 10 — estava marcado errado como "não iniciado") |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
 | Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` (`src/common/cep/cep.service.ts`, reusável para `CandidateProfile` depois) — CEP válido enriquece endereço, CEP inexistente/API fora do ar/timeout nunca bloqueiam a operação principal, endereço fica `null` |
@@ -263,10 +266,12 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **72 testes automatizados, todos
-verdes** (68 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+e o teste não enviava a chave). Hoje: **79 testes automatizados, todos
+verdes** (75 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
-`test/candidate-profile.e2e-spec.ts`, 4 unitários em
+`test/candidate-profile.e2e-spec.ts` (19 testes, incluindo escopo
+cross-tenant, transições `REJECTED`/`WITHDRAWN`/`INTERVIEW`/`OFFERED`/
+`HIRED`, empresa desativada e concorrência em `upsert`), 4 unitários em
 `src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts`),
 cobrindo os cenários obrigatórios de auth (400/401/409, fluxo completo de
 registro/login/refresh/logout, uma rota protegida por permission key, e a

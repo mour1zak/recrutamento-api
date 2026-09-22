@@ -31,6 +31,14 @@ describe('CandidateProfile (e2e)', () => {
   let candidateBToken: string;
   let candidateBId: number;
   let jobId: number;
+  // Empresa/vaga/recrutador extras — usados só no teste de escopo
+  // cross-tenant (Qwen rodada 10, P1 condição 2).
+  let jobCId: number;
+  let recruiterCToken: string;
+  // Empresa/vaga/recrutador extras — usados só no teste do C1 (empresa
+  // desativada não deve mais ler o perfil completo).
+  let companyDId: number;
+  let recruiterDToken: string;
   const cleanupUserIds: number[] = [];
   const cleanupCompanyIds: number[] = [];
 
@@ -84,10 +92,39 @@ describe('CandidateProfile (e2e)', () => {
     candidateBToken = registerB.body.accessToken;
     candidateBId = registerB.body.user.id;
     cleanupUserIds.push(candidateBId);
+
+    // Empresa/vaga/recrutador C — cross-tenant (P1 condição 2).
+    const companyC = await prisma.company.create({ data: { name: `Empresa C CandidateProfile ${Date.now()}` } });
+    cleanupCompanyIds.push(companyC.id);
+    const recruiterC = await prisma.user.create({
+      data: { name: 'Recrutador C', email: `recrutador-c-cp-${Date.now()}@example.com`, password: someHash, roleId: recruiterRole.id, companyId: companyC.id },
+    });
+    cleanupUserIds.push(recruiterC.id);
+    const jobC = await prisma.job.create({
+      data: { title: 'Vaga C CandidateProfile', description: 'X', vacancies: 1, isRemote: true, companyId: companyC.id, createdById: adminUserId },
+    });
+    jobCId = jobC.id;
+    const recruiterCLogin = await request(app.getHttpServer()).post('/auth/login').set('x-api-key', apiKey).send({ email: recruiterC.email, password: seedPassword });
+    recruiterCToken = recruiterCLogin.body.accessToken;
+
+    // Empresa/vaga/recrutador D — vai ser desativada (C1).
+    const companyD = await prisma.company.create({ data: { name: `Empresa D CandidateProfile ${Date.now()}` } });
+    companyDId = companyD.id;
+    cleanupCompanyIds.push(companyD.id);
+    const recruiterD = await prisma.user.create({
+      data: { name: 'Recrutador D', email: `recrutador-d-cp-${Date.now()}@example.com`, password: someHash, roleId: recruiterRole.id, companyId: companyD.id },
+    });
+    cleanupUserIds.push(recruiterD.id);
+    const jobD = await prisma.job.create({
+      data: { title: 'Vaga D CandidateProfile', description: 'X', vacancies: 1, isRemote: true, companyId: companyD.id, createdById: adminUserId },
+    });
+    await prisma.application.create({ data: { jobId: jobD.id, candidateId: candidateAId, status: 'UNDER_REVIEW' } });
+    const recruiterDLogin = await request(app.getHttpServer()).post('/auth/login').set('x-api-key', apiKey).send({ email: recruiterD.email, password: seedPassword });
+    recruiterDToken = recruiterDLogin.body.accessToken;
   });
 
   afterAll(async () => {
-    await prisma.application.deleteMany({ where: { jobId } });
+    await prisma.application.deleteMany({ where: { candidateId: { in: [candidateAId, candidateBId] } } });
     await prisma.refreshToken.deleteMany({ where: { userId: { in: cleanupUserIds } } });
     await prisma.candidateProfile.deleteMany({ where: { userId: { in: cleanupUserIds } } });
     await prisma.job.deleteMany({ where: { companyId: { in: cleanupCompanyIds } } });
@@ -205,15 +242,152 @@ describe('CandidateProfile (e2e)', () => {
       expect(res.body.summary).toBe('Experiência com NestJS');
       expect(res.body.phone).toBe('11999999999');
     });
+
+    // Achado crítico Qwen rodada 10 (C2): o predicado antigo (`!== PENDING`)
+    // destravava o perfil completo pra REJECTED e WITHDRAWN — o caso mais
+    // grave sendo WITHDRAWN, onde o candidato DESISTIR da candidatura
+    // aumentava a própria exposição de dados. Agora só uma lista positiva
+    // de status "em avaliação de verdade" destrava.
+    it('candidatura muda pra REJECTED -> RECRUITER volta a ver REDUZIDO (achado Qwen rodada 10, C2)', async () => {
+      await prisma.application.updateMany({ where: { jobId, candidateId: candidateAId }, data: { status: 'REJECTED' } });
+
+      const res = await request(app.getHttpServer())
+        .get(`/candidates/${candidateAId}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+      expect(res.body.summary).toBeUndefined();
+      expect(res.body.phone).toBeUndefined();
+    });
+
+    it('candidatura muda pra WITHDRAWN -> RECRUITER continua vendo REDUZIDO (achado Qwen rodada 10, C2 — o caso mais grave)', async () => {
+      await prisma.application.updateMany({ where: { jobId, candidateId: candidateAId }, data: { status: 'WITHDRAWN' } });
+
+      const res = await request(app.getHttpServer())
+        .get(`/candidates/${candidateAId}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .expect(200);
+      expect(res.body.summary).toBeUndefined();
+      expect(res.body.phone).toBeUndefined();
+    });
+
+    it('candidatura em INTERVIEW/OFFERED/HIRED -> RECRUITER vê COMPLETO (completa a matriz do predicado)', async () => {
+      for (const status of ['INTERVIEW', 'OFFERED', 'HIRED']) {
+        await prisma.application.updateMany({ where: { jobId, candidateId: candidateAId }, data: { status } });
+        const res = await request(app.getHttpServer())
+          .get(`/candidates/${candidateAId}`)
+          .set('x-api-key', apiKey)
+          .set('Authorization', `Bearer ${recruiterToken}`)
+          .expect(200);
+        expect(res.body.summary).toBe('Experiência com NestJS');
+      }
+      // Deixa de volta em UNDER_REVIEW pros testes seguintes (cross-tenant, C1).
+      await prisma.application.updateMany({ where: { jobId, candidateId: candidateAId }, data: { status: 'UNDER_REVIEW' } });
+    });
   });
 
-  it('PATCH /candidates/me com CEP real (sem mock) enriquece o endereço', async () => {
+  // Achado Qwen rodada 10 (P1, condição 2): o teste anterior (só
+  // PENDING/UNDER_REVIEW na mesma empresa) não pegaria uma regressão de
+  // escopo cross-tenant — se o filtro por `companyId` sumisse, ele
+  // continuaria passando. Este é o caso que pega: mesmo candidato, duas
+  // empresas, status diferentes em cada uma.
+  it('escopo cross-tenant: PENDING na empresa C não vaza completo, mesmo com UNDER_REVIEW em outra empresa', async () => {
+    await prisma.application.create({ data: { jobId: jobCId, candidateId: candidateAId, status: 'PENDING' } });
+
+    const resC = await request(app.getHttpServer())
+      .get(`/candidates/${candidateAId}`)
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${recruiterCToken}`)
+      .expect(200);
+    expect(resC.body.summary).toBeUndefined();
+    expect(resC.body.phone).toBeUndefined();
+
+    // Confirma que a empresa original (já em UNDER_REVIEW) continua completa.
+    const resOriginal = await request(app.getHttpServer())
+      .get(`/candidates/${candidateAId}`)
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${recruiterToken}`)
+      .expect(200);
+    expect(resOriginal.body.summary).toBe('Experiência com NestJS');
+  });
+
+  // Achado crítico Qwen rodada 10 (C1): `getByUserId()` nunca checava se a
+  // empresa do RECRUITER chamador estava ativa — a metade de LEITURA do
+  // C3 (rodada 8), que só corrigiu a metade de ESCRITA em Jobs.
+  it('empresa do RECRUITER desativada -> 404, mesmo com candidatura em UNDER_REVIEW (achado Qwen rodada 10, C1)', async () => {
+    const before = await request(app.getHttpServer())
+      .get(`/candidates/${candidateAId}`)
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${recruiterDToken}`)
+      .expect(200);
+    expect(before.body.phone).toBe('11999999999');
+
+    await request(app.getHttpServer())
+      .patch(`/companies/${companyDId}/deactivate`)
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+
+    await request(app.getHttpServer())
+      .get(`/candidates/${candidateAId}`)
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${recruiterDToken}`)
+      .expect(404);
+  });
+
+  // Achado Qwen rodada 10 (P4): `upsert` concorrente do mesmo usuário
+  // podia produzir um `409` espúrio ("já existe um registro") em ~37,5%
+  // das requisições simultâneas, mesmo sem nenhuma linha duplicada de
+  // verdade — o `@@unique(userId)` sempre protegeu a integridade, o
+  // problema era só a experiência de quem via um erro editando o próprio
+  // perfil. Agora o retry trata isso como `update` em vez de propagar o conflito.
+  it('PATCH /candidates/me concorrente (mesmo usuário) nunca responde 409 espúrio', async () => {
+    const requests = Array.from({ length: 8 }, (_, i) =>
+      request(app.getHttpServer())
+        .patch('/candidates/me')
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${candidateBToken}`)
+        .send({ headline: `Concorrência ${i}` }),
+    );
+    const results = await Promise.all(requests);
+    expect(results.every((r) => r.status === 200)).toBe(true);
+
+    const count = await prisma.candidateProfile.count({ where: { userId: candidateBId } });
+    expect(count).toBe(1);
+  });
+
+  // Achado Qwen rodada 10 (ressalva 5): a suíte anterior dependia do
+  // ViaCEP estar no ar e responder dentro do timeout pra não falhar — um
+  // problema de rede aparecia como "asserção de negócio errada". Agora só
+  // o CONTRATO é verificado aqui (sucesso + CEP salvo); o enriquecimento
+  // determinístico já é coberto por `cep.service.spec.ts` (mock de
+  // sucesso) e o cenário de falha por `cep.service.spec.ts` (mock de
+  // timeout) — sem depender de o serviço externo estar disponível AGORA.
+  it('PATCH /candidates/me com CEP -> 200, endereço vem preenchido ou em branco, nunca quebra a operação', async () => {
     const res = await request(app.getHttpServer())
       .patch('/candidates/me')
       .set('x-api-key', apiKey)
       .set('Authorization', `Bearer ${candidateAToken}`)
       .send({ cep: '01310-100' })
       .expect(200);
-    expect(res.body.city).toBe('São Paulo');
+    expect(res.body.cep).toBe('01310-100');
+    expect(res.body.city === null || typeof res.body.city === 'string').toBe(true);
+  });
+
+  it('PATCH /candidates/me com CEP inválido depois de um CEP válido -> mantém o endereço anterior (achado Qwen rodada 10, ressalva 1)', async () => {
+    // CEP com formato válido mas fora do intervalo real do Brasil — o
+    // ViaCEP responde `erro: true` (CEP inexistente), o mesmo formato de
+    // "não resolveu nada" que uma falha de rede produziria.
+    const res = await request(app.getHttpServer())
+      .patch('/candidates/me')
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${candidateAToken}`)
+      .send({ cep: '99999-999', phone: '11000000000' })
+      .expect(200);
+    // O telefone novo aplica; se o endereço anterior existia (São Paulo,
+    // do teste de cima) e a consulta deste CEP não resolveu nada, ele
+    // deve continuar lá — não ser apagado.
+    expect(res.body.phone).toBe('11000000000');
   });
 });

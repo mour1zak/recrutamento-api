@@ -10,6 +10,19 @@ export interface CepAddress {
   state: string | null;
 }
 
+// Achado Qwen rodada 10 (ressalva 1): `resolve()` sempre devolve os três
+// campos, `null` tanto pra "CEP inexistente" quanto pra "falha de rede/
+// timeout" — os chamadores (Companies, CandidateProfile) usavam isso
+// direto num `update()`, o que ZERAVA um endereço bom já salvo sempre que
+// uma instabilidade do provedor externo acontecia durante uma atualização
+// que nem mexia no CEP de verdade. Este helper distingue "resolveu (nem
+// que parcialmente)" de "não resolveu nada" — os `update()` só devem
+// sobrescrever o endereço no segundo caso quando o resultado for
+// positivo; em falha, mantêm o valor anterior.
+export function isResolvedAddress(address: CepAddress): boolean {
+  return address.street !== null || address.city !== null || address.state !== null;
+}
+
 // Formato de resposta do ViaCEP (e da maioria dos mocks compatíveis usados
 // em avaliações como esta): campos em português, `erro: true` no lugar de
 // um 404 HTTP quando o CEP não existe.

@@ -371,6 +371,31 @@ classificou como "idealmente" (desejável, não bloqueante pra reaprovação).
 (concorrência) ou antes de implementar `PATCH /users/:id/role`, o que
 vier primeiro.
 
+## 17. Corpo do `413` fora do padrão de erro do projeto
+
+**O quê:** `PayloadTooLargeError` do body-parser do Express devolve
+`{"statusCode":413,"message":"request entity too large"}` — sem `error`,
+sem `reason`, sem passar pelo `GlobalExceptionFilter`.
+
+**Por quê:** achado Qwen (rodada 10) — é o terceiro formato de corpo de
+erro do projeto, depois de `Auth`/`Users` (sem `reason`) e os módulos de
+domínio (com `reason`, unificado na rodada 9). Um cliente que built contra
+o contrato documentado recebe uma surpresa se mandar um payload grande
+demais.
+
+**Por que não foi corrigido na hora:** o erro é lançado pelo
+`body-parser` **antes** do request chegar ao pipeline do Nest — o
+`GlobalExceptionFilter` (um `@Catch()` de nível de aplicação) não
+intercepta isso; corrigir exigiria um middleware/handler de erro
+dedicado registrado no `main.ts`, antes do Nest assumir a requisição.
+
+**Custo estimado:** baixo — um middleware pequeno, mas é uma peça de
+infraestrutura nova (não uma correção pontual), fora do escopo da rodada
+que a encontrou.
+
+**Status:** 🟡 Registrado. Baixa prioridade — `413` já é um status code
+correto, só o formato do corpo é inconsistente.
+
 ---
 
 _Este arquivo é vivo: novos itens entram aqui sempre que identificarmos algo

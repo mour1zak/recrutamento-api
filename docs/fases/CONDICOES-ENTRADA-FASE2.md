@@ -171,6 +171,40 @@ Dois achados novos corrigidos nesta rodada:
   reforçados — `GET /jobs` público agora faz `LIKE` + `count` + join de
   company por página.
 
+## Adendo rodada 10 — REPROVADO → corrigido (Fase 3: CandidateProfile)
+
+Primeira auditoria do módulo `CandidateProfile`. **REPROVADO** com 2
+críticos de **vazamento real de PII** (telefone/endereço de candidato),
+ambos corrigidos e reverificados por execução, inclusive contra o
+servidor de dev — ver
+`PARECER-QWEN-FASE3-CANDIDATEPROFILE-RODADA10.md` e
+`TRIAGEM-REVISOES-RODADA10.md`.
+
+- **C1 — recrutador de empresa DESATIVADA continuava lendo perfil
+  completo.** Era a metade de LEITURA do C3 (rodada 8), que só corrigiu
+  a metade de ESCRITA em `Jobs`. Corrigido: `getByUserId()` agora checa
+  `company.isActive` do chamador antes de consultar `Application`.
+- **C2 — `REJECTED`/`WITHDRAWN` destravavam o perfil completo**, com o
+  caso mais grave sendo `WITHDRAWN`: o candidato desistir da candidatura
+  aumentava a própria exposição de dados. Corrigido: predicado trocado
+  de negação (`status !== PENDING`) para lista positiva
+  (`STATUSES_THAT_UNLOCK_FULL_PROFILE`).
+
+Também corrigido na mesma rodada: `409` espúrio em `PATCH /candidates/me`
+concorrente (upsert retenta como `update` em vez de propagar o
+conflito); falha de CEP em `UPDATE` deixava de apagar endereço já salvo
+(`isResolvedAddress()`, corrigido também em `CompaniesService.update()`,
+mesmo bug); `skills[]` ganhou `@MaxLength` por item; suíte deixou de
+depender do ViaCEP estar no ar pra não ser flaky; teste de escopo
+cross-tenant adicionado.
+
+**Registrado, sem bloquear:** perfil de usuário desativado continua
+legível (decisão consciente — histórico de processos em andamento não
+deve sumir); a checagem de escopo (`companyId`/ADMIN) está duplicada
+entre `Jobs` e `CandidateProfile` — extrair helper compartilhado quando
+`Application` precisar da mesma lógica; corpo do `413` fora do padrão do
+projeto (registrado em `FEEDBACKS-MELHORIA.md`).
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem

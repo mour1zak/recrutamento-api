@@ -28,6 +28,13 @@ const CONSTRAINT_LABELS: Record<string, string> = {
 // formato de resposta já fechado.
 const CONSTRAINT_REASONS: Record<string, string> = {
   Company_cnpj_key: 'cnpj_duplicado',
+  // Achado Qwen rodada 10 (P4): rede de segurança pro `P2002` de
+  // `CandidateProfile.userId` — o caminho normal (`upsertMine()`) já
+  // trata a corrida de `upsert` retentando como `update`, mas se esse
+  // retry também colidir (extremamente improvável), o erro que escapa
+  // até aqui agora tem `reason`, em vez de ser o único 409 de domínio
+  // sem um.
+  CandidateProfile_userId_key: 'candidate_profile_conflict',
 };
 
 // Achado Qwen rodada 6 (ressalva 11): mesma ideia do CONSTRAINT_LABELS,

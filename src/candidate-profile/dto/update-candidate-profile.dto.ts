@@ -24,9 +24,15 @@ export class UpdateCandidateProfileDto {
   @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP deve ter o formato 00000-000 ou 00000000.' })
   cep?: string;
 
+  // Achado Qwen rodada 10 (ressalva 2): só `@ArrayMaxSize` não limita o
+  // tamanho de CADA item — 30 strings de 3.000 caracteres passavam
+  // (`200`), e como `skills` aparece até no payload REDUZIDO (visível a
+  // qualquer recrutador com candidatura `PENDING`), um candidato
+  // conseguia empurrar ~90 KB pra tela de triagem de todo mundo.
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
+  @MaxLength(60, { each: true })
   @ArrayMaxSize(30)
   skills?: string[];
 }

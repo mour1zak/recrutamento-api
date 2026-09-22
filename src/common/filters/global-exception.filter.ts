@@ -47,6 +47,31 @@ const MODEL_LABELS: Record<string, string> = {
   Document: 'Documento',
 };
 
+// Achado Qwen rodada 7 (ressalvas 2 e 3): erros de integridade que passam
+// por SQL cru (`$executeRawUnsafe`/`$queryRaw`) chegam como `P2010`
+// (envelope genérico de "raw query failed"), e uma violação de `CHECK` via
+// client chega como `P2039` — nenhum dos dois tem um `case` dedicado no
+// switch abaixo, então caíam no `default` e viravam `500`. O SQLSTATE real
+// (classe do padrão SQL, não específico do Prisma) sempre está em
+// `meta.driverAdapterError.cause.originalCode`, então mapear por ele cobre
+// qualquer P-code que o encapsule, não só os dois medidos. Também inclui
+// os retryáveis que uma fila de `SELECT ... FOR UPDATE` (Fase 3) pode
+// produzir (deadlock, lock indisponível, timeout de statement) — sinalizados
+// por Qwen como risco não medido, mas do mesmo jeito, cobertos por
+// precaução.
+const SQLSTATE_CONFLICT = new Set([
+  '23505', // unique_violation
+  '23514', // check_violation (ex.: `CHECK (filledCount <= vacancies)` da Fase 3)
+  '40001', // serialization_failure (mesmo código do duck-typing acima, coberto aqui também por completude)
+  '40P01', // deadlock_detected
+  '55P03', // lock_not_available
+  '57014', // query_canceled (statement_timeout)
+]);
+const SQLSTATE_BAD_REQUEST = new Set([
+  '23503', // foreign_key_violation
+  '23502', // not_null_violation
+]);
+
 function isTransactionWriteConflict(error: unknown): boolean {
   // Achado crítico Qwen rodada 6 (N1-a): com driver adapter (obrigatório no
   // Prisma 7), um conflito de serialização (`Serializable`) NÃO chega como
@@ -132,14 +157,32 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
       }
       case 'P2003':
         return { status: HttpStatus.BAD_REQUEST, message: 'Referência a um recurso relacionado inexistente.' };
+      case 'P2020':
+        return { status: HttpStatus.BAD_REQUEST, message: 'Valor fora do intervalo permitido para o campo.' };
       case 'P2034':
       case 'P2028':
         // Mantido por completude (ver comentário de isTransactionWriteConflict) —
         // não é o caminho real hoje, mas custa nada deixar coberto.
         return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência — tente novamente.' };
-      default:
+      default: {
+        // P2010 (SQL cru) e qualquer outro código não mapeado acima podem
+        // ainda assim ser um erro de integridade/concorrência real — ver
+        // comentário de SQLSTATE_CONFLICT/SQLSTATE_BAD_REQUEST acima.
+        const state = this.sqlState(exception);
+        if (state && SQLSTATE_CONFLICT.has(state)) {
+          return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência ou de regra de negócio — tente novamente.' };
+        }
+        if (state && SQLSTATE_BAD_REQUEST.has(state)) {
+          return { status: HttpStatus.BAD_REQUEST, message: 'Referência ou valor inválido para um campo relacionado.' };
+        }
         return { status: HttpStatus.INTERNAL_SERVER_ERROR, message: 'Erro interno ao processar a operação.' };
+      }
     }
+  }
+
+  private sqlState(exception: Prisma.PrismaClientKnownRequestError): string | undefined {
+    const meta = exception.meta as { driverAdapterError?: { cause?: { originalCode?: string } } } | undefined;
+    return meta?.driverAdapterError?.cause?.originalCode;
   }
 
   private constraintLabel(exception: Prisma.PrismaClientKnownRequestError): string | undefined {

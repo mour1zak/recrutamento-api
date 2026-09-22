@@ -318,7 +318,32 @@ revisão externa.
 um template padrão, mas precisa de ajuste para `.env.test`/segredos de CI.
 
 **Status:** 🟡 Registrado. Valioso, mas não bloqueia a Fase 2 — considerar
-para a Fase 5 (entrega final) se houver tempo.
+para a Fase 5 (entrega final) se houver tempo. **Reforçado na rodada 7**:
+o Qwen apontou que um CI mínimo teria pego tanto o achado crítico do
+`db:reset:test` (item 15, abaixo) quanto a ressalva do README
+desatualizado, sem depender de auditoria externa pra notar.
+
+## 15. `db:reset:dev` explícito, ao lado do `db:reset:test`
+
+**O quê:** um script irmão de `npm run db:reset:test` para resetar o
+`recrutamento_dev`, com a mesma trava de segurança (checagem de nome do
+banco + override de `DATABASE_URL`), em vez de reaproveitar comandos
+manuais do README.
+
+**Por quê:** sugestão do Qwen (rodada 7) — metade do risco do achado
+crítico daquela rodada (`db:reset:test` podia apagar o banco errado) vem
+de não existir um caminho **nomeado e seguro** para cada banco; hoje só o
+de teste tem um.
+
+**Custo estimado:** baixo — é o mesmo `scripts/db-reset-test.ts` com o
+arquivo de env trocado.
+
+**Status:** 🟡 Registrado, não implementado agora. Diferente do
+`db:reset:test` (correção de um achado crítico já existente, feita na
+hora), este é um script **novo** que passa a poder apagar dados de
+desenvolvimento — por isso não foi criado sem alinhar antes com o
+usuário, seguindo o mesmo cuidado já aplicado a outras mudanças
+destrutivas deste projeto.
 
 ---
 

@@ -34,7 +34,7 @@ deixamos isso implícito no código._
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
-| CRUDs / gestão das entidades | 🟡 Só `PATCH /users/:id/deactivate` existe até aqui; demais entidades ainda não |
+| CRUDs / gestão das entidades | 🟡 Só `PATCH /users/:id/deactivate` e `PATCH /users/:id/reactivate` existem até aqui; demais entidades ainda não |
 | Consultas por relacionamento | ⬜ Não iniciado |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
@@ -184,13 +184,22 @@ Isso derruba e recria só o `recrutamento_test` (nunca toca no
 `recrutamento_dev`) e roda o seed em seguida — use sempre que o banco de
 teste ficar num estado inconsistente entre execuções (achado Qwen rodada
 6, ressalva 9: sem esse comando, um teste interrompido no meio podia
-deixar dados residuais que quebravam a próxima rodada). Internamente é
-`prisma migrate reset --force` + `prisma db seed`, ambos carregando
-`.env.test` via o CLI do pacote `dotenv` já instalado — **medido por
-execução:** `migrate reset` sozinho, nesta versão do Prisma, não dispara
-o seed automaticamente (ao contrário do que a documentação de versões
-anteriores sugere), por isso os dois comandos são explícitos e
-encadeados.
+deixar dados residuais que quebravam a próxima rodada).
+
+Internamente é `scripts/db-reset-test.ts` (rodado via `tsx`), não mais o
+CLI `dotenv run` direto no `package.json`. **Achado crítico Qwen rodada
+7:** a versão anterior (`dotenv run -f .env.test -- prisma migrate reset
+--force`) não sobrescrevia um `DATABASE_URL` já exportado no shell — se
+alguém tivesse seguido a "alternativa manual" abaixo (que exporta
+`DATABASE_URL` na mão) e depois rodasse `db:reset:test`, o comando
+apagava **o banco apontado por essa variável, não o de teste**. Provado
+pelo Qwen com um "banco canário" descartável. O script novo lê
+`.env.test` e monta o ambiente do processo filho com esses valores
+**sempre por cima** de qualquer coisa já exportada, e se recusa a rodar
+se o nome do banco alvo não contiver `"test"`. Também mantém a
+correção da rodada 6: `migrate reset` sozinho, nesta versão do Prisma,
+não dispara o seed automaticamente, por isso os dois comandos continuam
+explícitos e encadeados dentro do script.
 
 Alternativa manual, comando por comando (o que o script acima faz por
 baixo):

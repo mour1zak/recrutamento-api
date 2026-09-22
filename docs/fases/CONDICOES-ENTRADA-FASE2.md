@@ -71,6 +71,32 @@ Este adendo fecha a Fase 2 do ponto de vista da auditoria adversarial —
 os itens "Gate Fase 3" abaixo continuam sendo os requisitos de entrada
 para a próxima fase, não itens desta.
 
+## Adendo rodada 7 — APROVADO COM RESSALVAS (Fase 2 fechada de vez)
+
+N1-a e N5-a (rodada 6) reexecutados sob carga adversarial ainda maior (5
+formatos de ataque diferentes contra a trava de último admin, incluindo
+20 pares simultâneos e um ciclo de 4 admins) — **zero `5xx`**, invariante
+nunca violado. Nenhuma falha crítica em produto nesta rodada. Ver
+`PARECER-QWEN-FASE2-AUTH-RODADA7.md` e `TRIAGEM-REVISOES-RODADA7.md`.
+
+Dois achados corrigidos, ambos fora do comportamento da API:
+
+- **`db:reset:test` podia apagar o banco errado** se `DATABASE_URL` já
+  estivesse exportada no shell (`dotenv run` não sobrescreve variáveis
+  existentes por padrão) — provado pelo Qwen com um banco canário.
+  Corrigido: reescrito como `scripts/db-reset-test.ts`, que monta o
+  ambiente do processo filho com os valores de `.env.test` sempre por
+  cima de qualquer coisa herdada, e recusa rodar se o nome do banco alvo
+  não contiver `"test"`. Testado reproduzindo o mesmo cenário do canário.
+- **Erros de integridade via SQL cru (`P2010`) ou via client sem P-code
+  dedicado (`P2039`) caíam no `default` do filtro e viravam `500`** —
+  acharia exatamente o `CHECK` que o Gate Fase 3 (abaixo) promete. Como o
+  Qwen mediu isso criando temporariamente o `CHECK` real de
+  `Job.filledCount`, adiantamos a correção no filtro (mapeamento por
+  classe do SQLSTATE, incluindo os retryáveis de lock/deadlock/timeout
+  que uma fila de `FOR UPDATE` pode produzir) — sem alterar a migration
+  agora, só o `GlobalExceptionFilter`. Testado com o mesmo repro do Qwen.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
@@ -204,6 +230,25 @@ para a próxima fase, não itens desta.
       reconhece o conflito de transação `Serializable` do driver adapter
       (`TransactionWriteConflict`, formato que `P2034` nunca captura na
       prática) e devolve `409` em vez de `500`.
+- [x] **O `CHECK` (item acima) disparando produz `409`, não `500`** —
+      item novo pedido pelo Qwen na rodada 7, **adiantado antes mesmo do
+      `CHECK` existir na migration**: o `GlobalExceptionFilter` agora
+      classifica qualquer erro de integridade por SQLSTATE
+      (`meta.driverAdapterError.cause.originalCode`), cobrindo tanto o
+      caminho via client (`P2039`) quanto via SQL cru (`P2010`, que serve
+      de envelope genérico pra qualquer violação disparada fora do
+      client) — `23505`/`23514` (unique/check) → `409`,
+      `23503`/`23502` (FK/not-null) → `400`, mais os SQLSTATEs
+      retryáveis de lock/deadlock/timeout (`40P01`/`55P03`/`57014`) → `409`,
+      prováveis numa fila de `SELECT ... FOR UPDATE`. Testado criando
+      temporariamente o `CHECK` de `Job.filledCount` via
+      `$executeRawUnsafe` (sem tocar a migration), violando pelos dois
+      caminhos, confirmando `409` nos dois, e removendo a constraint em
+      seguida (zero resíduo em `pg_constraint`). **Falta ainda:** quando a
+      Fase 3 adicionar o `CHECK` de verdade na migration, escrever o
+      teste automatizado que o viola de propósito e assere `409`
+      (sugestão 1 do Qwen, rodada 7) — hoje essa verificação só existe
+      como evidência de auditoria, não como teste na suíte.
 
 ## Gate Nível B (só se/quando o endpoint de ADMIN editar permissões existir)
 

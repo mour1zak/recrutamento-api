@@ -5,10 +5,19 @@ import type { AuthenticatedUser } from '../types/authenticated-user.js';
 
 /**
  * Item obrigatório do enunciado ("ao menos um interceptor útil").
- * Registrado global (`APP_INTERCEPTOR`) — loga toda requisição depois de
- * resolvida, nunca antes (só reagimos ao resultado real, sem duplicar log
- * em caso de erro: o `GlobalExceptionFilter` já teria respondido, e o
- * `finalize`/`tap` de erro abaixo cobre esse caminho também).
+ * Registrado global (`APP_INTERCEPTOR`) — loga a requisição depois de
+ * resolvida pelo HANDLER (rota que casou e passou pelos guards), nunca
+ * antes.
+ *
+ * Achado Qwen rodada 14 (R1): interceptors rodam DEPOIS dos guards no
+ * pipeline do Nest — uma rejeição de `ApiKeyGuard`/`JwtAuthGuard`/
+ * `PermissionsGuard` (401/403), ou uma rota inexistente (404 do router),
+ * nunca chegam aqui, então este interceptor sozinho NÃO cobre "toda
+ * requisição" como uma versão anterior deste comentário afirmava. Esses
+ * casos são logados pelo `GlobalExceptionFilter`
+ * (`src/common/filters/global-exception.filter.ts`), que é o único ponto
+ * que enxerga essas exceções antes de qualquer interceptor — os dois
+ * juntos cobrem o que "toda requisição" promete.
  *
  * Deliberadamente NÃO loga body/query/headers — só metadados (rota,
  * status, duração, id do usuário autenticado quando existir). Logar corpo

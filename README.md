@@ -26,10 +26,16 @@
 > obrigatória do enunciado, upload de documento com validação de
 > MIME/tamanho. **Obrigatório do enunciado 100% concluído** — o interceptor
 > era o único item pendente (`LoggingInterceptor`, global, loga
-> método/rota/status/duração sem tocar no corpo). **148 testes automatizados
-> verdes** (9 unitários + 139
-> e2e) — **os 10 dos 10 cenários obrigatórios de teste** do enunciado
-> cobertos. Este
+> método/rota/status/duração sem tocar no corpo; rejeições de guard/rota
+> logadas pelo `GlobalExceptionFilter`, achado Qwen rodada 14). Aprovado
+> pelo Qwen na Rodada 14 depois de uma reprovação por asserção de teste de
+> concorrência exclusiva demais (não por defeito no interceptor) — a
+> mesma classe de erro da rodada 9, agora com regra escrita pro projeto:
+> testes de concorrência sempre assertam o invariante final e o conjunto
+> de desfechos aceitos, nunca um único ramo específico. **148 testes
+> automatizados verdes** (9 unitários + 139 e2e), suíte completa rodada 8×
+> seguidas sem falha — **os 10 dos 10 cenários obrigatórios de teste** do
+> enunciado cobertos. Este
 > README é atualizado a cada fase concluída — documento histórico da
 > avaliação, não tarefa de última hora.
 
@@ -62,7 +68,7 @@ deixamos isso implícito no código._
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟢 `Job` (rodada 8/9), `Application` (`PENDING→...→HIRED`/`REJECTED`/`WITHDRAWN`, com histórico em `ApplicationStatusHistory`) e `Interview` (`SCHEDULED→COMPLETED/CANCELED/NO_SHOW/RESCHEDULED`, reagendamento cria novo registro) implementados e testados |
 | Upload de currículo/documento | 🟢 `POST /documents` (multipart, MIME whitelist + limite de 5MB), `GET /documents/:id` com escopo condicional (dono, ou recrutador com candidatura `UNDER_REVIEW`+) |
 | Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado desde a Rodada 11: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado`, achado Qwen N1 — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta) |
-| Interceptor coerente | 🟢 `LoggingInterceptor` (`src/common/interceptors/`) global via `APP_INTERCEPTOR` — loga método/rota/status/duração/id do usuário de toda requisição, sem tocar no corpo (nunca vaza senha/token) |
+| Interceptor coerente | 🟢 `LoggingInterceptor` (`src/common/interceptors/`) global via `APP_INTERCEPTOR` — loga método/rota/status/duração/id do usuário de toda requisição que passa pelos guards, sem tocar no corpo (nunca vaza senha/token). Rejeições de guard (401/403) e rota inexistente (404) não passam por interceptor nenhum no Nest — logadas separadamente pelo `GlobalExceptionFilter` (achado Qwen rodada 14) |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |

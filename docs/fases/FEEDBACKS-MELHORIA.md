@@ -413,6 +413,36 @@ do corpo desse segundo caso é que é inconsistente.
 
 ---
 
+## 18. `LoggingInterceptor` — quatro itens de higiene (achado Qwen rodada 14)
+
+**O quê:** quatro ressalvas desejáveis sobre `src/common/interceptors/logging.interceptor.ts`,
+nenhuma crítica:
+1. A duração logada mede só o tempo do HANDLER, não da requisição
+   inteira — exclui a consulta ao banco que `JwtStrategy.validate()` faz
+   dentro do guard, que roda antes do interceptor começar a contar.
+   Medido: ~53% de subestimativa numa rota autenticada simples.
+2. A URL logada não tem limite de tamanho — uma query de 8.000
+   caracteres produz uma linha de log de 8KB+, mesmo quando a própria
+   requisição é rejeitada por validação.
+3. Nenhuma redação de query param com cara de segredo (`apiKey`,
+   `token`, `password` etc.) — hoje nenhuma rota real passa segredo por
+   query, mas o interceptor persistiria isso se algum cliente mal
+   configurado o fizesse.
+4. `tap({next, error})` não tem `finalize` — uma requisição abortada pelo
+   cliente no meio do caminho não dispara nenhum dos dois callbacks e
+   some do log, exatamente o tipo de requisição mais interessante de
+   auditar (timeout, scanner).
+
+**Por quê não foi corrigido na hora:** nenhum dos quatro é bloqueante
+(o Qwen classificou como "desejável", não "antes da Fase 5"), e a rodada
+14 já tinha um item bloqueante (asserção de teste) e um "antes da Fase 5"
+(R1, rejeições de guard sem log) que foram priorizados.
+
+**Status:** 🟡 Registrado. Baixa prioridade — nenhum é vazamento de dado
+nem falha de segurança, são refinamentos de observabilidade.
+
+---
+
 _Este arquivo é vivo: novos itens entram aqui sempre que identificarmos algo
 tecnicamente correto para melhorar, mas que não deve competir por tempo com
 o obrigatório dos 5 dias._

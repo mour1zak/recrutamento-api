@@ -191,13 +191,22 @@ describe('Roles / RBAC Nível B (e2e)', () => {
         ]);
 
         expect([resA.status, resB.status].every((s) => s === 200 || s === 409)).toBe(true);
-        // Achado Qwen rodada 13 (ressalva 1): o 409 de conflito de
-        // serialização é o desfecho mais comum desta corrida e agora
-        // precisa vir com `reason` — sem isso era o único 409 de domínio
-        // do projeto sem um.
+        // Achado CRÍTICO Qwen rodada 14: esta asserção exigia
+        // EXCLUSIVAMENTE `concorrencia_transacao`, mas o 409 desta corrida
+        // tem dois desfechos legítimos — o Postgres pode abortar uma
+        // transação por conflito de serialização (`concorrencia_transacao`),
+        // OU a primeira commitar antes da segunda contar, fazendo a
+        // REGRA DE NEGÓCIO disparar (`sem_papel_com_role_manage`), que é a
+        // trava funcionando pelo caminho previsto, não uma falha. É a
+        // mesma classe de erro da rodada 9 (N2: "exatamente um 200" quando
+        // dois 200 eram legais) — asserção sobre QUAL desfecho legal
+        // aconteceu, em vez de sobre o invariante. Regra de teste de
+        // concorrência do projeto a partir de agora: assertar o invariante
+        // no banco + o CONJUNTO de códigos/reasons aceitos, nunca o
+        // desfecho de um ramo único.
         for (const res of [resA, resB]) {
           if (res.status === 409) {
-            expect(res.body.reason).toBe('concorrencia_transacao');
+            expect(['sem_papel_com_role_manage', 'concorrencia_transacao']).toContain(res.body.reason);
           }
         }
         const remaining = await prisma.rolePermission.count({ where: { permissionId: roleManagePermission.id } });

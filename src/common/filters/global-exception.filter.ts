@@ -1,6 +1,6 @@
-import { ArgumentsHost, Catch, HttpStatus, PayloadTooLargeException, UnauthorizedException } from '@nestjs/common';
+import { ArgumentsHost, Catch, HttpException, HttpStatus, Logger, PayloadTooLargeException, UnauthorizedException } from '@nestjs/common';
 import { BaseExceptionFilter } from '@nestjs/core';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Prisma } from '../../generated/prisma/client.js';
 import { STATUS_TEXT } from '../exceptions/error-body.util.js';
 
@@ -106,6 +106,17 @@ function isTransactionWriteConflict(error: unknown): boolean {
  */
 @Catch()
 export class GlobalExceptionFilter extends BaseExceptionFilter {
+  // Achado Qwen rodada 14 (R1, "antes da Fase 5"): guards
+  // (ApiKeyGuard/JwtAuthGuard/PermissionsGuard) rodam ANTES de qualquer
+  // interceptor no pipeline do Nest — uma rejeição deles (401/403), ou
+  // uma rota inexistente (404 do router), nunca passa pelo
+  // `LoggingInterceptor`, então ficava sem NENHUMA linha de log, mesmo a
+  // documentação afirmando "loga toda requisição". É exatamente o
+  // tráfego mais relevante pra um log de segurança (brute-force,
+  // sondagem de 403, varredura de rotas). Este filtro é o único ponto
+  // que enxerga essas exceções antes de qualquer interceptor — loga aqui.
+  private readonly logger = new Logger('HTTP');
+
   catch(exception: unknown, host: ArgumentsHost) {
     // Achado Fase 4 (módulo Documents): o `FileInterceptor` do Nest já
     // traduz o `MulterError('LIMIT_FILE_SIZE')` pra um `PayloadTooLargeException`
@@ -152,12 +163,25 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     }
 
     // Qualquer outra coisa (HttpException normais lançadas pelos nossos
-    // Services, erros de validação do ValidationPipe, erro realmente
-    // desconhecido) segue o comportamento padrão do Nest.
+    // Services — já logadas pelo LoggingInterceptor, pois passam pela
+    // execução do handler —, `ForbiddenException` do PermissionsGuard,
+    // rota inexistente, ou erro realmente desconhecido) segue o
+    // comportamento padrão do Nest. Logamos aqui especificamente pro caso
+    // de guard/rota que o interceptor nunca vê (ver comentário do
+    // `logger` acima) — duplicar o log de um erro de Service já logado
+    // pelo interceptor é aceitável (mesma linha, mesma informação).
+    const fallbackStatus = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
+    this.logRejection(host, fallbackStatus);
     super.catch(exception, host);
   }
 
+  private logRejection(host: ArgumentsHost, status: number): void {
+    const request = host.switchToHttp().getRequest<Request>();
+    this.logger.warn(`${request.method} ${request.originalUrl} ${status}`);
+  }
+
   private respond(host: ArgumentsHost, status: number, message: string, reason?: string) {
+    this.logRejection(host, status);
     const response = host.switchToHttp().getResponse<Response>();
     const body: Record<string, unknown> = { statusCode: status, error: STATUS_TEXT[status] ?? 'Error', message };
     if (reason) {

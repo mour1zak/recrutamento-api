@@ -7,6 +7,7 @@ import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
+import { CompaniesModule } from './companies/companies.module.js';
 import { ApiKeyGuard } from './common/guards/api-key.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
@@ -30,6 +31,7 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter.
     PrismaModule,
     UsersModule,
     AuthModule,
+    CompaniesModule,
   ],
   controllers: [AppController],
   providers: [

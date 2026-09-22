@@ -1,14 +1,16 @@
 # Plataforma de Recrutamento — API (AV-04)
 
-> **Status atual: Fase 2 (Auth/RBAC) fechada na Rodada 6 pelo Qwen**
-> (APROVADO COM RESSALVAS) — ver `docs/fases/`. Rodada 7 já reenviada,
-> aguardando retorno. Auth completo (registro/login/refresh/logout),
-> RBAC dinâmico funcionando de ponta a ponta, filtro global de exceções,
-> 15 testes automatizados verdes. O DeepSeek já entregou o mapa dos 41
-> endpoints do restante do domínio (Company/Job/Application/
-> CandidateProfile/Interview/Document/Users/RBAC Nível B) — implementação
-> ainda não iniciada. Este README é atualizado a cada fase concluída —
-> documento histórico da avaliação, não tarefa de última hora.
+> **Status atual: Fase 2 (Auth/RBAC) fechada de vez na Rodada 7 pelo
+> Qwen** (APROVADO COM RESSALVAS) — ver `docs/fases/`. Auth completo
+> (registro/login/refresh/logout), RBAC dinâmico funcionando de ponta a
+> ponta, filtro global de exceções. Módulo `Companies` implementado
+> (primeiro de domínio além de Auth/Users), incluindo a integração
+> externa de CEP obrigatória do enunciado. 32 testes automatizados
+> verdes. O DeepSeek já entregou o mapa dos 41 endpoints do restante do
+> domínio (Job/Application/CandidateProfile/Interview/Document/Users/RBAC
+> Nível B) — implementação em andamento. Este README é atualizado a cada
+> fase concluída — documento histórico da avaliação, não tarefa de
+> última hora.
 
 ## 1. Objetivo
 
@@ -34,16 +36,16 @@ deixamos isso implícito no código._
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
-| CRUDs / gestão das entidades | 🟡 Só `PATCH /users/:id/deactivate` e `PATCH /users/:id/reactivate` existem até aqui; demais entidades ainda não |
+| CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate) e `Company` (CRUD completo) implementados; demais entidades ainda não |
 | Consultas por relacionamento | ⬜ Não iniciado |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
-| Integração externa via `HttpService` (CEP/localização) | ⬜ Não iniciado |
+| Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` (`src/common/cep/cep.service.ts`, reusável para `CandidateProfile` depois) — CEP válido enriquece endereço, CEP inexistente/API fora do ar/timeout nunca bloqueiam a operação principal, endereço fica `null` |
 | Interceptor coerente | ⬜ Não iniciado |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
-| Testes obrigatórios (10 cenários do enunciado) | 🟡 3 de 10 cobertos por teste automatizado (fluxo com sucesso, body inválido, ausência/token inválido, conflito de negócio — via `test/auth.e2e-spec.ts`); os demais (403/404 de terceiro, upload, integração externa, mudança de estado) dependem de módulos ainda não implementados |
+| Testes obrigatórios (10 cenários do enunciado) | 🟡 7 de 10 cobertos por teste automatizado: #1 fluxo com sucesso, #2 body inválido, #3 ausência/token inválido, #4 sem permissão, #5 recurso inexistente, #6 conflito de negócio (`test/auth.e2e-spec.ts`, `test/companies.e2e-spec.ts`), #9 integração externa funcionando e falhando de forma controlada (CEP real, sem mock, `test/companies.e2e-spec.ts`). Faltam: #7 acesso a recurso de terceiro, #8 upload válido/inválido, #10 fluxo completo de mudança de estado (dependem de `Application`/`Document`/`Job` ainda não implementados) |
 
 ### 2.2 Bônus (só depois do obrigatório)
 
@@ -219,16 +221,21 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **15 testes automatizados, todos
-verdes** (14 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts`, 1
-unitário em `src/app.controller.spec.ts`), cobrindo os cenários
+e o teste não enviava a chave). Hoje: **32 testes automatizados, todos
+verdes** (28 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+`test/companies.e2e-spec.ts`, 4 unitários em `src/app.controller.spec.ts`
++ `src/common/cep/cep.service.spec.ts`), cobrindo os cenários
 obrigatórios de auth (400/401/409, fluxo completo de registro/login/
 refresh/logout, uma rota protegida por permission key, e a trava de
 último administrador sob concorrência real — 8 admins temporários, 4
-pares de desativação mútua simultânea, nunca `500`). Os demais dos 10
-cenários do enunciado (403/404 de dono de recurso, upload, integração
-externa, mudança de estado) só têm onde morar quando os módulos
-correspondentes existirem.
+pares de desativação mútua simultânea, nunca `500`), o CRUD completo de
+`Company` (403/404/409 com `reason` estruturado), e a integração externa
+de CEP funcionando e falhando de forma controlada (contra o ViaCEP real,
+sem mock — o único mock do projeto é o `HttpService` no teste unitário do
+`CepService`, pra provocar timeout de forma determinística). 7 dos 10
+cenários obrigatórios do enunciado já cobertos (ver §2.1); os 3 restantes
+(403/404 de dono de recurso, upload, mudança de estado completa) só têm
+onde morar quando `Application`/`Document`/`Job` existirem.
 
 ## 5. Endpoints
 
@@ -246,3 +253,15 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `POST` | `/auth/logout` | JWT | `{refreshToken}` | `204`; `401` sem JWT/JWT inválido |
 | `PATCH` | `/users/:id/deactivate` | JWT + permission `user:manage` | — | `204`; `403` sem a permissão; `404` usuário inexistente; `409` alvo é a própria conta, o último ADMIN ativo, ou conflito de concorrência (tente novamente) |
 | `PATCH` | `/users/:id/reactivate` | JWT + permission `user:manage` | — | `204` (idempotente); `403` sem a permissão; `404` usuário inexistente |
+| `POST` | `/companies` | JWT + permission `company:create` | `{name, cnpj?, description?, cep}` | `201`; `400` DTO inválido; `409` CNPJ duplicado (`reason: "cnpj_duplicado"`) |
+| `GET` | `/companies/:id` | JWT + permission `company:read` | — | `200`; `404` inexistente ou inativa |
+| `PATCH` | `/companies/:id` | JWT + permission `company:update` | `{name?, cnpj?, description?, cep?}` | `200`; `400` DTO inválido; `404` inexistente ou inativa |
+| `PATCH` | `/companies/:id/deactivate` | JWT + permission `company:delete` | — | `204`; `404` inexistente ou já inativa (`reason: "company_already_inactive"`) |
+| `PATCH` | `/companies/:id/reactivate` | JWT + permission `company:delete` | — | `204`; `404` inexistente ou já ativa (`reason: "company_already_active"`) |
+
+**Nota sobre formato de erro:** a partir de `Companies`, respostas `404`/`409`
+de regra de negócio ganham um campo `reason` machine-readable além de
+`message` (ex.: `{statusCode: 409, reason: "cnpj_duplicado", message: "..."}`)
+— sugestão do Qwen/DeepSeek na Fase 2, adotada só para módulos novos. As
+rotas de `Auth`/`Users` acima mantêm o formato antigo (sem `reason`), já
+auditado, para não reabrir escopo fechado.

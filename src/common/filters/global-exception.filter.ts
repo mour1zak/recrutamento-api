@@ -29,6 +29,15 @@ const CONSTRAINT_LABELS: Record<string, string> = {
   Document_path_key: 'arquivo',
 };
 
+// `reason` machine-readable, só para constraints de módulos criados a
+// partir da decisão de adotar {statusCode, reason, message} (Companies em
+// diante — ver src/common/exceptions/error-body.util.ts). As constraints
+// do Auth (já auditado) ficam de fora de propósito, pra não mudar um
+// formato de resposta já fechado.
+const CONSTRAINT_REASONS: Record<string, string> = {
+  Company_cnpj_key: 'cnpj_duplicado',
+};
+
 // Achado Qwen rodada 6 (ressalva 11): mesma ideia do CONSTRAINT_LABELS,
 // aplicada ao P2025 — "recurso não encontrado" vira "usuário não
 // encontrado" quando dá pra saber o modelo.
@@ -105,8 +114,8 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     }
 
     if (exception instanceof Prisma.PrismaClientKnownRequestError) {
-      const { status, message } = this.mapPrismaError(exception);
-      this.respond(host, status, message);
+      const { status, message, reason } = this.mapPrismaError(exception);
+      this.respond(host, status, message, reason);
       return;
     }
 
@@ -129,12 +138,16 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     super.catch(exception, host);
   }
 
-  private respond(host: ArgumentsHost, status: number, message: string) {
+  private respond(host: ArgumentsHost, status: number, message: string, reason?: string) {
     const response = host.switchToHttp().getResponse<Response>();
-    response.status(status).json({ statusCode: status, error: STATUS_TEXT[status] ?? 'Error', message });
+    const body: Record<string, unknown> = { statusCode: status, error: STATUS_TEXT[status] ?? 'Error', message };
+    if (reason) {
+      body.reason = reason;
+    }
+    response.status(status).json(body);
   }
 
-  private mapPrismaError(exception: Prisma.PrismaClientKnownRequestError): { status: number; message: string } {
+  private mapPrismaError(exception: Prisma.PrismaClientKnownRequestError): { status: number; message: string; reason?: string } {
     // Erro de infraestrutura (banco inacessível, servidor fechou a conexão,
     // timeout do pool) não é conflito de dado — retryar contra um banco
     // fora do ar é o comportamento errado que um 409 induziria.
@@ -145,9 +158,11 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     switch (exception.code) {
       case 'P2002': {
         const field = this.constraintLabel(exception) ?? 'valor único';
+        const index = this.constraintIndex(exception);
         return {
           status: HttpStatus.CONFLICT,
           message: `Já existe um registro com o mesmo valor em: ${field}.`,
+          reason: index ? CONSTRAINT_REASONS[index] : undefined,
         };
       }
       case 'P2025': {
@@ -185,14 +200,13 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     return meta?.driverAdapterError?.cause?.originalCode;
   }
 
+  private constraintIndex(exception: Prisma.PrismaClientKnownRequestError): string | undefined {
+    const meta = exception.meta as { driverAdapterError?: { cause?: { constraint?: { index?: string } } } } | undefined;
+    return meta?.driverAdapterError?.cause?.constraint?.index;
+  }
+
   private constraintLabel(exception: Prisma.PrismaClientKnownRequestError): string | undefined {
-    const meta = exception.meta as
-      | { driverAdapterError?: { cause?: { constraint?: { index?: string } } }; modelName?: string }
-      | undefined;
-    const index = meta?.driverAdapterError?.cause?.constraint?.index;
-    if (index && CONSTRAINT_LABELS[index]) {
-      return CONSTRAINT_LABELS[index];
-    }
-    return undefined;
+    const index = this.constraintIndex(exception);
+    return index ? CONSTRAINT_LABELS[index] : undefined;
   }
 }

@@ -340,6 +340,57 @@ CandidateProfile); não há razão pra achar que `Application` (que soma
 concorrência real + PII + múltiplos papéis, os três ingredientes que
 causaram os críticos anteriores) esteja isento do mesmo risco.
 
+## Adendo Rodada 12 — Fase 4 REPROVADA → corrigida (primeira auditoria real)
+
+A previsão registrada no Adendo Fase 4 ("não há razão pra achar que
+Application esteja isento do mesmo risco") se confirmou: **REPROVADO**
+com 6 críticos, todos reproduzidos por execução real — ver
+`PARECER-QWEN-FASE4-RODADA12.md` e `TRIAGEM-REVISOES-RODADA12.md`.
+
+- **K1** — `HIRED` × redução de `vacancies` produzia `filledCount >
+  vacancies` em 60% de 25 corridas (comparação contra um valor lido antes
+  da transação, não a coluna). Corrigido com SQL parametrizado
+  (coluna×coluna) **e** `CHECK` novo na migration
+  (`job_filledcount_within_vacancies`) — o item do Gate Fase 3 que
+  estava pendente desde a Fase 1.
+- **K2/K3** — as travas de "último papel com `role:manage`" e "último
+  ADMIN ativo" (esta reaproveitada em `updateRole`) tinham a MESMA
+  vulnerabilidade: contagem e escrita em passos separados, sem
+  transação — furadas em 83% das corridas nos dois casos. Corrigidas com
+  o mesmo invólucro `$transaction(..., {isolationLevel: 'Serializable'})`
+  que `deactivate()` já usa desde a rodada 6.
+- **K4** — `PATCH /users/:id/company` com corpo `{}` derrubava a rota com
+  `500` (`undefined` tratado como `null`). Corrigido distinguindo os
+  dois no Service.
+- **K5** — `isCompanyOperable()` (extraído na rodada 11) nunca chegou a
+  Applications/Interviews/Documents — recrutador de empresa desativada
+  continuava com acesso total, incluindo **download de arquivo real**.
+  Corrigido nos 3 módulos.
+- **K6** — escopo de `Document` liberava TODOS os documentos de um
+  candidato com candidatura qualificada, não só os anexados — um laudo
+  médico nunca enviado à empresa era acessível do mesmo jeito. Corrigido
+  removendo a branch ampla demais.
+
+**Mudança de infraestrutura:** `vitest.config.e2e.ts` ganhou
+`fileParallelism: false` — necessário pra provar K3 sem risco de
+interferência cruzada com `auth.e2e-spec.ts` (que já mexe na contagem
+global de admins ativos). Custo: suíte e2e de ~13s pra ~35s, aceitável.
+
+**Registrado, não corrigido nesta rodada** (11 ressalvas do Qwen,
+nenhuma bloqueante): validação de `interviewerId`/`scheduledAt` futuro em
+Interview, campos de Interview inalcançáveis pela API
+(`location`/`meetingLink`/`durationMinutes`/`isRemote`), guardas de
+`isActive`/vagas ativas em `updateCompany`, mojibake em `originalName` de
+Document, MIME confiando no cliente, ciclo de vida do arquivo físico
+órfão, corpo do `500` sem `error`. Todas com destino registrado em
+`TRIAGEM-REVISOES-RODADA12.md`.
+
+**Verificação:** build limpo · lint 0 avisos · `npm test` 6/6 ·
+`npm run test:e2e` 139/139 (**145 no total**), 3× seguidas sem falha,
+incluindo reprodução real de concorrência pros 3 críticos de corrida
+(K1/K2/K3) — invariante no banco verificado depois de cada rodada, nunca
+"exatamente um 200".
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem

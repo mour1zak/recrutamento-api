@@ -327,4 +327,84 @@ describe('Applications (e2e)', () => {
       expect(job.filledCount).toBe(1);
     });
   });
+
+  // Achado CRÍTICO Qwen rodada 12 (K1): a versão anterior comparava
+  // `filledCount` (coluna) contra `application.job.vacancies` — um NÚMERO
+  // lido ANTES da transação de contratação começar, não a coluna
+  // `vacancies` em si. O teste de concorrência acima (duas contratações
+  // simultâneas, `vacancies` ESTÁVEL) não pegava isso — as duas
+  // comparações só divergem quando `vacancies` MUDA no meio do caminho.
+  // Medido pelo Qwen: reduzir `vacancies` enquanto uma contratação está
+  // em voo produzia `filledCount > vacancies` em 15 de 25 corridas.
+  // Corrigido com SQL parametrizado comparando coluna×coluna
+  // (`$executeRaw`), e reforçado com um `CHECK` na migration como rede de
+  // segurança. Este teste reproduz o cenário exato do relatório.
+  describe('K1: reduzir vacancies ENQUANTO uma contratação está em voo nunca viola filledCount <= vacancies', () => {
+    let jobId: number;
+    let applicationId: number;
+
+    beforeAll(async () => {
+      const job = await prisma.job.create({ data: { title: 'Vaga K1 Apps', description: 'X', vacancies: 3, isRemote: true, companyId: companyAId, createdById: adminUserId, status: JobStatus.OPEN } });
+      jobId = job.id;
+
+      const register = await request(app.getHttpServer()).post('/auth/register').set('x-api-key', apiKey).send({ name: 'Candidato K1 Apps', email: `candidato-k1-apps-${Date.now()}@example.com`, password: 'SenhaForte@123' });
+      const candidateToken = register.body.accessToken;
+      cleanupUserIds.push(register.body.user.id);
+
+      const application = await request(app.getHttpServer()).post(`/jobs/${jobId}/applications`).set('x-api-key', apiKey).set('Authorization', `Bearer ${candidateToken}`).send({});
+      applicationId = application.body.id;
+      for (const status of ['UNDER_REVIEW', 'INTERVIEW', 'OFFERED']) {
+        await request(app.getHttpServer()).patch(`/applications/${applicationId}/status`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).send({ status }).expect(200);
+      }
+    });
+
+    it('5 rodadas: vacancies=3->2 disputa com a 3ª contratação — nunca fica filledCount > vacancies', async () => {
+      for (let round = 0; round < 5; round++) {
+        // Estado de partida de cada rodada: 2 posições já preenchidas
+        // (simulando contratações anteriores), a 3ª candidatura pronta
+        // pra ser contratada (`OFFERED`), vacancies ainda em 3.
+        await prisma.job.update({ where: { id: jobId }, data: { vacancies: 3, filledCount: 2 } });
+        await prisma.application.update({ where: { id: applicationId }, data: { status: 'OFFERED' } });
+
+        const [reduceRes, hireRes] = await Promise.all([
+          request(app.getHttpServer()).patch(`/jobs/${jobId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).send({ vacancies: 2 }),
+          request(app.getHttpServer()).patch(`/applications/${applicationId}/status`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).send({ status: 'HIRED' }),
+        ]);
+
+        // Nunca 5xx dos dois lados.
+        expect([reduceRes.status, hireRes.status].every((s) => s < 500)).toBe(true);
+
+        const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
+        // O invariante que importa, exatamente como o Qwen mediu: nunca
+        // `filledCount > vacancies`, não importa qual dos dois venceu a
+        // corrida.
+        expect(job.filledCount).toBeLessThanOrEqual(job.vacancies);
+      }
+    });
+  });
+
+  // Achado CRÍTICO Qwen rodada 12 (K5): `isCompanyOperable()` foi extraído
+  // na rodada 11 exatamente pra este consumidor (o comentário do próprio
+  // helper diz isso) e nunca foi importado em `ApplicationsService`. Sem
+  // ele, um recrutador de empresa desativada continuava lendo e
+  // escrevendo candidaturas normalmente — medido pelo Qwen com o mesmo
+  // token, no mesmo instante, contra `Jobs` (404 correto) e
+  // `Applications` (200 incorreto).
+  describe('K5: empresa desativada bloqueia acesso do recrutador a candidaturas', () => {
+    it('empresa desativada -> GET /jobs/:jobId/applications, GET /applications/:id e PATCH .../status todos 404', async () => {
+      await prisma.company.update({ where: { id: companyAId }, data: { isActive: false } });
+      try {
+        const [listRes, getRes, patchRes] = await Promise.all([
+          request(app.getHttpServer()).get(`/jobs/${jobOpenId}/applications`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`),
+          request(app.getHttpServer()).get(`/applications/${applicationAId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`),
+          request(app.getHttpServer()).patch(`/applications/${applicationAId}/status`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).send({ status: 'REJECTED' }),
+        ]);
+        expect(listRes.status).toBe(404);
+        expect(getRes.status).toBe(404);
+        expect(patchRes.status).toBe(404);
+      } finally {
+        await prisma.company.update({ where: { id: companyAId }, data: { isActive: true } });
+      }
+    });
+  });
 });

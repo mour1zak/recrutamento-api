@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { PrismaService } from '../prisma/prisma.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { isAdmin } from '../common/utils/role.util.js';
+import { isCompanyOperable } from '../common/utils/company-scope.util.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import { ApplicationStatus, JobStatus, Prisma } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
@@ -158,7 +159,13 @@ export class ApplicationsService {
     const job = await this.prisma.job.findUnique({ where: { id: jobId }, select: { companyId: true } });
     // Mesmo padrão anti-enumeração de `JobsService`: vaga fora do escopo
     // do recrutador é 404, nunca 403 (não confirma nem nega existência).
-    if (!job || (!isAdmin(currentUser) && job.companyId !== currentUser.companyId)) {
+    // Achado CRÍTICO Qwen rodada 12 (K5): faltava checar se a empresa do
+    // recrutador ainda está ATIVA — `isCompanyOperable()` foi extraído na
+    // rodada 11 exatamente pra este consumidor e nunca foi importado
+    // aqui. Sem isso, um recrutador de empresa desativada continuava
+    // lendo candidaturas normalmente (medido: 200 onde `Jobs`/
+    // `CandidateProfile` já dão 404 pro mesmo cenário).
+    if (!job || (!isAdmin(currentUser) && (job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw applicationJobNotFound();
     }
 
@@ -194,10 +201,11 @@ export class ApplicationsService {
       return toFullResponse(application);
     }
 
-    // RECRUITER: só enxerga candidatura de vaga da própria empresa —
-    // fora disso, 404 (mesma política anti-enumeração do resto do
-    // projeto, nunca 403).
-    if (application.job.companyId !== currentUser.companyId) {
+    // RECRUITER: só enxerga candidatura de vaga da própria empresa, com a
+    // empresa ainda ATIVA — fora disso, 404 (mesma política
+    // anti-enumeração do resto do projeto, nunca 403). Achado CRÍTICO
+    // Qwen rodada 12 (K5): a checagem de empresa ativa faltava aqui.
+    if (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))) {
       throw applicationNotFound();
     }
     return STATUSES_WITH_FULL_VISIBILITY.includes(application.status)
@@ -240,22 +248,26 @@ export class ApplicationsService {
     return this.prisma.application.findUniqueOrThrow({ where: { id }, include: APPLICATION_INCLUDE });
   }
 
-  // Regra de concorrência real (Fase 3): duas contratações simultâneas na
-  // mesma vaga não podem, juntas, ultrapassar `vacancies`. O `UPDATE ...
-  // WHERE filledCount < vacancies` do Postgres resolve isso sozinho — a
-  // segunda transação a chegar reavalia a condição contra o valor JÁ
-  // incrementado pela primeira (lock de linha implícito do UPDATE), sem
-  // precisar de isolamento SERIALIZABLE nem `SELECT ... FOR UPDATE`
-  // explícito. As duas escritas (vaga + candidatura) ficam na mesma
-  // transação: se a segunda falhar (`count === 0`), a primeira também
-  // desfaz — lançar dentro do callback do Prisma reverte a transação.
+  // Achado CRÍTICO Qwen rodada 12 (K1): a versão anterior comparava
+  // `filledCount` (coluna, valor no instante da escrita) contra
+  // `application.job.vacancies` — um NÚMERO lido ANTES desta transação
+  // começar, não a coluna `vacancies` em si. Enquanto `vacancies` não
+  // muda no meio do caminho, as duas comparações coincidem — foi por
+  // isso que o teste original (2 requisições, vacancies estável) passou.
+  // Medido pelo Qwen: reduzir `vacancies` (`PATCH /jobs/:id`) ENQUANTO
+  // uma contratação está em voo faz a comparação usar o valor antigo
+  // (maior), e a escrita passa mesmo violando o invariante — 15/25
+  // corridas produziram `filledCount > vacancies`. A API do Prisma não
+  // expressa comparação coluna×coluna; corrigido com SQL parametrizado
+  // (`$executeRaw`, sem interpolação de string — os `${}` do
+  // `Prisma.sql` viram parâmetros reais, não concatenação).
   private async hireWithCapacityCheck(application: ApplicationWithRelations, dto: UpdateApplicationStatusDto, currentUser: AuthenticatedUser) {
     return this.prisma.$transaction(async (tx) => {
-      const jobUpdate = await tx.job.updateMany({
-        where: { id: application.jobId, filledCount: { lt: application.job.vacancies } },
-        data: { filledCount: { increment: 1 } },
-      });
-      if (jobUpdate.count === 0) {
+      const jobUpdateCount = await tx.$executeRaw`
+        UPDATE "Job" SET "filledCount" = "filledCount" + 1
+        WHERE id = ${application.jobId} AND "filledCount" < "vacancies"
+      `;
+      if (jobUpdateCount === 0) {
         throw new ConflictException(errorBody(409, 'no_vacancies_left', `A vaga já preencheu todas as ${application.job.vacancies} posições.`));
       }
       const appUpdate = await tx.application.updateMany({
@@ -305,7 +317,10 @@ export class ApplicationsService {
 
   private async findScopedForRecruiterOrThrow(id: number, currentUser: AuthenticatedUser) {
     const application = await this.prisma.application.findUnique({ where: { id }, include: APPLICATION_INCLUDE });
-    if (!application || (!isAdmin(currentUser) && application.job.companyId !== currentUser.companyId)) {
+    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` —
+    // sem ela, um recrutador de empresa desativada continuava mudando o
+    // status de candidaturas normalmente.
+    if (!application || (!isAdmin(currentUser) && (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw applicationNotFound();
     }
     return application;

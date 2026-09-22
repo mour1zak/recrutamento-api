@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { PERMISSIONS, SYSTEM_ROLES, type PermissionKey } from '../common/constants/permissions.constants.js';
@@ -222,7 +222,25 @@ export class UsersService {
     return user;
   }
 
-  async updateCompany(id: number, companyId: number | null) {
+  async updateCompany(id: number, companyId: number | null | undefined) {
+    // Achado CRÍTICO Qwen rodada 12 (K4): `@IsOptional()` no DTO trata
+    // `null` e `undefined` como a mesma coisa ("pula a validação
+    // seguinte") — de propósito, pra deixar `null` (desvincular) passar
+    // sem exigir `@IsInt()`. Só que isso também deixa `undefined` (campo
+    // AUSENTE do body, ex.: `PATCH` com `{}`) passar pro Service
+    // igualzinho a `null`. O código tratava os dois como "sem empresa",
+    // mas `company.findUnique({where:{id: undefined}})` (branch
+    // `companyId !== null`, verdadeiro pra `undefined`) lança
+    // `PrismaClientValidationError` — não capturado pelo
+    // `GlobalExceptionFilter` (só pega `PrismaClientKnownRequestError`),
+    // vira `500` cru. Medido: `PATCH /users/:id/company` com `{}` → 500.
+    // Corrigido tratando `undefined` como erro do cliente (campo
+    // obrigatório ausente), distinto de `null` (valor válido pra
+    // desvincular).
+    if (companyId === undefined) {
+      throw new BadRequestException(errorBody(400, 'company_id_obrigatorio', 'companyId é obrigatório no corpo (number para vincular, null para desvincular).'));
+    }
+
     const user = await this.prisma.user.findUnique({ where: { id }, include: { role: true } });
     if (!user) {
       throw new NotFoundException(errorBody(404, 'user_not_found', 'Usuário não encontrado.'));
@@ -269,17 +287,31 @@ export class UsersService {
         );
       }
     }
-    // Mesma trava de último admin de `deactivate()` (rodada 5, N1),
-    // aplicada aqui porque trocar o PAPEL de um admin tem o mesmo efeito
-    // líquido de desativá-lo enquanto admin.
-    if (user.role.name === SYSTEM_ROLES.ADMIN && newRole.name !== SYSTEM_ROLES.ADMIN && user.isActive) {
-      const activeAdmins = await this.prisma.user.count({ where: { isActive: true, role: { name: SYSTEM_ROLES.ADMIN } } });
-      if (activeAdmins <= 1) {
-        throw new ConflictException(errorBody(409, 'last_active_admin', 'Não é possível mudar o papel do último administrador ativo.'));
-      }
-    }
-
-    return this.prisma.user.update({ where: { id }, data: { roleId }, select: USER_SUMMARY_SELECT });
+    // Achado CRÍTICO Qwen rodada 12 (K3): a versão anterior fazia a
+    // contagem de admins ativos e a escrita como dois passos separados,
+    // fora de transação — a mesma corrida que o C4 (Fase 2) e o C2 dos
+    // Jobs (rodada 8) já tinham provado quebrar. Medido: isolando
+    // exatamente 2 admins ativos e disparando duas `PATCH .../role`
+    // simultâneas tirando o papel ADMIN de cada um, 10 em 12 corridas
+    // zeraram os admins ativos — as duas contagens aconteciam antes de
+    // qualquer escrita commitar. O comentário anterior já dizia "mesma
+    // trava de `deactivate()`", mas só copiou a REGRA, não o INVÓLUCRO
+    // que a torna atômica. Corrigido envolvendo contagem + escrita na
+    // mesma transação `Serializable` que `deactivate()` já usa — mesmo
+    // mecanismo, mesmo `GlobalExceptionFilter` traduzindo o conflito de
+    // serialização pra `409`.
+    return this.prisma.$transaction(
+      async (tx) => {
+        if (user.role.name === SYSTEM_ROLES.ADMIN && newRole.name !== SYSTEM_ROLES.ADMIN && user.isActive) {
+          const activeAdmins = await tx.user.count({ where: { isActive: true, role: { name: SYSTEM_ROLES.ADMIN } } });
+          if (activeAdmins <= 1) {
+            throw new ConflictException(errorBody(409, 'last_active_admin', 'Não é possível mudar o papel do último administrador ativo.'));
+          }
+        }
+        return tx.user.update({ where: { id }, data: { roleId }, select: USER_SUMMARY_SELECT });
+      },
+      { isolationLevel: 'Serializable' },
+    );
   }
 
   private toAuthenticatedUser(user: {

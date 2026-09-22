@@ -13,18 +13,22 @@
 > mais amplo: matriz completa de status, cross-tenant, ciclo desativar/
 > reativar). Achado novo da Rodada 11 (contrato de CEP inválido vs. falha
 > de rede, especificado desde a Fase 1 e nunca implementado) também
-> corrigido. **Fase 4 implementada nesta rodada** (Application, Interview,
-> Document, gestão de Users e RBAC Nível B — os 41 endpoints do mapa do
-> DeepSeek), sob orçamento de tempo apertado (últimas 4h de produção):
-> auto-revisão aplicando os mesmos padrões já validados nas rodadas
-> anteriores (escopo por empresa, `updateMany` condicional pra
-> concorrência real, 404 anti-enumeração, `reason` estruturado), **ainda
-> sem rodada de auditoria do Qwen** — registrado como pendência explícita,
-> não como "fechado". Auth completo, RBAC dinâmico de ponta a ponta,
-> filtro global de exceções, integração externa de CEP obrigatória do
-> enunciado, upload de documento com validação de MIME/tamanho.
-> **137 testes automatizados verdes** (6 unitários + 131 e2e) — **os 10
-> dos 10 cenários obrigatórios de teste** do enunciado cobertos. Este
+> corrigido. **Fase 4** (Application, Interview, Document, gestão de
+> Users e RBAC Nível B — os 41 endpoints do mapa do DeepSeek) **reprovada
+> na Rodada 12** com 6 críticos — todos por ausência de atomicidade em
+> escrita concorrente (`HIRED` × redução de `vacancies`; as duas travas de
+> "último" em RBAC Nível B e troca de papel de ADMIN) ou propagação
+> incompleta de proteções já existentes (`isCompanyOperable()` faltando em
+> 3 módulos; escopo de `Document` largo demais) — **todos corrigidos e
+> reverificados com concorrência real** (`Promise.all`, invariante no
+> banco depois, nunca "exatamente um 200"), aguardando reapresentação.
+> Novo `CHECK (filledCount <= vacancies)` na migration fecha um item do
+> Gate Fase 3 pendente desde a Fase 1. Auth completo, RBAC dinâmico de
+> ponta a ponta, filtro global de exceções, integração externa de CEP
+> obrigatória do enunciado, upload de documento com validação de
+> MIME/tamanho. **145 testes automatizados verdes** (6 unitários + 139
+> e2e) — **os 10 dos 10 cenários obrigatórios de teste** do enunciado
+> cobertos. Este
 > README é atualizado a cada fase concluída — documento histórico da
 > avaliação, não tarefa de última hora.
 
@@ -275,8 +279,8 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **137 testes automatizados, todos
-verdes** (131 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+e o teste não enviava a chave). Hoje: **145 testes automatizados, todos
+verdes** (139 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
 `test/candidate-profile.e2e-spec.ts` + `test/applications.e2e-spec.ts` +
 `test/interviews.e2e-spec.ts` + `test/documents.e2e-spec.ts` +
@@ -304,6 +308,17 @@ de `RESCHEDULED` de `Interview` (`201` com a nova entrevista, original
 vira `RESCHEDULED`), e o upload de documento com MIME/tamanho inválidos
 (`test/documents.e2e-spec.ts`, cenário obrigatório #8). **10 dos 10**
 cenários obrigatórios do enunciado cobertos (ver §2.1).
+
+**Achado Qwen rodada 12 (Fase 4 reprovada → corrigida):** 6 críticos de
+concorrência/escopo, todos com teste de reprodução real adicionado —
+reduzir `vacancies` durante uma contratação em voo (`filledCount >
+vacancies` corrigido com SQL coluna×coluna + `CHECK` novo na migration),
+duas travas de "último" (RBAC `role:manage` e ADMIN) furadas por escrita
+concorrente sem transação (corrigidas com o mesmo `Serializable` de
+`deactivate()`), e escopo de empresa desativada faltando em 3 módulos.
+`vitest.config.e2e.ts` passou a rodar arquivos e2e em sequência
+(`fileParallelism: false`) — necessário pra testar agregados globais
+(contagem de admins ativos) sem risco de interferência entre arquivos.
 
 ## 5. Endpoints
 

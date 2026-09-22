@@ -29,6 +29,7 @@ describe('Documents (e2e)', () => {
   let candidateAToken: string;
   let candidateAId: number;
   let candidateBToken: string;
+  let companyAId: number;
   const cleanupUserIds: number[] = [];
   const cleanupCompanyIds: number[] = [];
 
@@ -48,6 +49,7 @@ describe('Documents (e2e)', () => {
       prisma.user.findFirstOrThrow({ where: { email: 'admin@recrutamento.test' }, omit: { password: false } }).then((u) => u.password),
     ]);
     cleanupCompanyIds.push(companyA.id);
+    companyAId = companyA.id;
 
     const recruiterA = await prisma.user.create({ data: { name: 'Recrutador A Documents', email: `recrutador-a-documents-${Date.now()}@example.com`, password: someHash, roleId: recruiterRole.id, companyId: companyA.id } });
     cleanupUserIds.push(recruiterA.id);
@@ -160,9 +162,40 @@ describe('Documents (e2e)', () => {
     return request(app.getHttpServer()).get(`/documents/${documentId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).expect(404);
   });
 
-  it('candidatura avança para UNDER_REVIEW -> recrutador da empresa agora consegue baixar o documento', async () => {
-    await prisma.application.updateMany({ where: { candidateId: candidateAId }, data: { status: ApplicationStatus.UNDER_REVIEW } });
+  it('candidatura avança para UNDER_REVIEW E o documento é anexado -> recrutador da empresa agora consegue baixar', async () => {
+    // Achado Qwen rodada 12 (K6): acesso agora exige o vínculo EXPLÍCITO
+    // (`resumeDocumentId` anexado à candidatura), não mais "qualquer
+    // documento do candidato" — por isso este teste passa a anexar o
+    // documento à candidatura antes de esperar acesso, o que reflete a
+    // regra de negócio real (documento enviado PARA aquela candidatura).
+    await prisma.application.updateMany({ where: { candidateId: candidateAId }, data: { status: ApplicationStatus.UNDER_REVIEW, resumeDocumentId: documentId } });
     const res = await request(app.getHttpServer()).get(`/documents/${documentId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).expect(200);
     expect(res.headers['content-disposition']).toContain('curriculo.pdf');
+  });
+
+  it('outro documento do MESMO candidato, nunca anexado -> continua 404 mesmo com a candidatura em UNDER_REVIEW (achado Qwen rodada 12, K6)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/documents')
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${candidateAToken}`)
+      .field('type', 'OTHER')
+      .attach('file', Buffer.from('%PDF-1.4 documento pessoal nunca anexado'), { filename: 'pessoal.pdf', contentType: 'application/pdf' })
+      .expect(201);
+    const unattachedDocumentId = res.body.id;
+
+    await request(app.getHttpServer()).get(`/documents/${unattachedDocumentId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).expect(404);
+  });
+
+  // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` em
+  // `DocumentsService` — o caso mais grave do relatório, já que o
+  // documento (currículo) continuava sendo baixado por um recrutador cuja
+  // empresa acabou de ser desativada por um ADMIN.
+  it('empresa desativada -> GET /documents/:id (mesmo com o documento anexado a candidatura qualificada) -> 404', async () => {
+    await prisma.company.update({ where: { id: companyAId }, data: { isActive: false } });
+    try {
+      await request(app.getHttpServer()).get(`/documents/${documentId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).expect(404);
+    } finally {
+      await prisma.company.update({ where: { id: companyAId }, data: { isActive: true } });
+    }
   });
 });

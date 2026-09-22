@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { isAdmin } from '../common/utils/role.util.js';
+import { isCompanyOperable } from '../common/utils/company-scope.util.js';
 import { ApplicationStatus, InterviewStatus } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { CreateInterviewDto } from './dto/create-interview.dto.js';
@@ -28,7 +29,8 @@ export class InterviewsService {
       where: { id: applicationId },
       select: { id: true, status: true, job: { select: { companyId: true } } },
     });
-    if (!application || (!isAdmin(currentUser) && application.job.companyId !== currentUser.companyId)) {
+    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()`.
+    if (!application || (!isAdmin(currentUser) && (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw applicationNotFound();
     }
     // Contrato do DeepSeek (Fase 2, mapa §5): só se agenda entrevista
@@ -48,7 +50,8 @@ export class InterviewsService {
 
   async findForApplication(applicationId: number, currentUser: AuthenticatedUser) {
     const application = await this.prisma.application.findUnique({ where: { id: applicationId }, select: { job: { select: { companyId: true } } } });
-    if (!application || (!isAdmin(currentUser) && application.job.companyId !== currentUser.companyId)) {
+    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()`.
+    if (!application || (!isAdmin(currentUser) && (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw applicationNotFound();
     }
     return this.prisma.interview.findMany({ where: { applicationId }, orderBy: { createdAt: 'desc' } });
@@ -121,7 +124,8 @@ export class InterviewsService {
 
   private async findScopedOrThrow(id: number, currentUser: AuthenticatedUser) {
     const interview = await this.prisma.interview.findUnique({ where: { id }, include: INTERVIEW_INCLUDE });
-    if (!interview || (!isAdmin(currentUser) && interview.application.job.companyId !== currentUser.companyId)) {
+    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()`.
+    if (!interview || (!isAdmin(currentUser) && (interview.application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw interviewNotFound();
     }
     return interview;

@@ -226,14 +226,15 @@ describe('Jobs (e2e)', () => {
     });
 
     it('PATCH /jobs/:id reduzindo vacancies abaixo do filledCount -> 409', async () => {
-      // filledCount só é escrito pelo fluxo de contratação (Fase 3, ainda
-      // não implementado) — simulado direto no banco pra testar a
-      // invariante do Service isoladamente. `vacancies: 1` (não 0): o
-      // DTO já barra 0 (`@Min(1)`, uma vaga sempre tem ao menos 1
-      // posição) — o que este teste prova é a invariante de negócio
-      // "não pode ficar abaixo do que já foi preenchido", não a validação
-      // de forma do campo.
-      await prisma.job.update({ where: { id: jobId }, data: { filledCount: 2 } });
+      // filledCount só é escrito pelo fluxo de contratação (Application,
+      // Fase 4) — simulado direto no banco pra testar a invariante do
+      // Service isoladamente. Achado Qwen rodada 12 (K1): agora existe um
+      // `CHECK (filledCount <= vacancies)` na migration — `vacancies`
+      // precisa subir JUNTO com `filledCount` neste setup direto, senão o
+      // próprio `UPDATE` de preparação do teste já viola a constraint
+      // (é exatamente essa constraint que garante que o cenário que este
+      // teste tenta simular nunca exista de verdade fora de um teste).
+      await prisma.job.update({ where: { id: jobId }, data: { vacancies: 2, filledCount: 2 } });
 
       const res = await request(app.getHttpServer())
         .patch(`/jobs/${jobId}`)
@@ -243,7 +244,7 @@ describe('Jobs (e2e)', () => {
         .expect(409);
       expect(res.body.reason).toBe('vacancies_below_filled_count');
 
-      await prisma.job.update({ where: { id: jobId }, data: { filledCount: 0 } });
+      await prisma.job.update({ where: { id: jobId }, data: { filledCount: 0, vacancies: 1 } });
     });
 
     it('GET /jobs/mine como recruiterA -> inclui a vaga da empresa A', async () => {

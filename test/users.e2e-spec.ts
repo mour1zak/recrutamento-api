@@ -77,6 +77,16 @@ describe('Users management (e2e)', () => {
     return request(app.getHttpServer()).get('/users/999999').set('x-api-key', apiKey).set('Authorization', `Bearer ${adminToken}`).expect(404);
   });
 
+  it('PATCH /users/:id/company com body {} (campo ausente) -> 400, nunca 500 (achado Qwen rodada 12, K4)', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/users/${candidateId}/company`)
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({})
+      .expect(400);
+    expect(res.body.reason).toBe('company_id_obrigatorio');
+  });
+
   it('PATCH /users/:id/company em usuário que NÃO é RECRUITER -> 409', async () => {
     const res = await request(app.getHttpServer())
       .patch(`/users/${candidateId}/company`)
@@ -145,6 +155,64 @@ describe('Users management (e2e)', () => {
         .expect(409);
       expect(res.body.reason).toBe('recrutador_com_vagas_ativas');
     });
+  });
+
+  // Achado CRÍTICO Qwen rodada 12 (K3): a contagem de "admins ativos" e a
+  // escrita do novo papel aconteciam em dois passos separados, sem
+  // transação — a mesma classe de corrida do C4 (Fase 2) e do C2 de Jobs
+  // (rodada 8). Medido: isolando exatamente 2 admins ativos e trocando o
+  // papel dos dois ao mesmo tempo, 10 em 12 corridas zeraram os admins
+  // ativos. Corrigido envolvendo a contagem na mesma transação
+  // `Serializable` que `deactivate()` já usa. Provar isso de verdade
+  // exige isolar o número real de admins ativos — só é seguro fazer isso
+  // porque `vitest.config.e2e.ts` agora roda os arquivos de teste em
+  // sequência (`fileParallelism: false`), então nenhum outro arquivo
+  // (`auth.e2e-spec.ts` inclusive, que tem seu próprio teste de admins
+  // temporários) está mexendo na contagem global ao mesmo tempo.
+  it('duas requisições PATCH .../role simultâneas tirando ADMIN de 2 admins (só eles ativos) nunca zeram os admins', async () => {
+    const [adminRole, candidateRole, someHash] = await Promise.all([
+      prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.ADMIN } }),
+      prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.CANDIDATE } }),
+      prisma.user.findFirstOrThrow({ where: { email: 'admin@recrutamento.test' }, omit: { password: false } }).then((u) => u.password),
+    ]);
+
+    const otherActiveAdmins = await prisma.user.findMany({ where: { isActive: true, roleId: adminRole.id }, select: { id: true } });
+    const [adminX, adminY] = await Promise.all([
+      prisma.user.create({ data: { name: 'K3 Admin X', email: `k3-admin-x-${Date.now()}@example.com`, password: someHash, roleId: adminRole.id } }),
+      prisma.user.create({ data: { name: 'K3 Admin Y', email: `k3-admin-y-${Date.now()}@example.com`, password: someHash, roleId: adminRole.id } }),
+    ]);
+
+    try {
+      // Estado limítrofe: SÓ X e Y ficam ativos como ADMIN — inclusive o
+      // admin do seed é desativado temporariamente (restaurado no
+      // `finally`), pra garantir que a contagem global seja exatamente 2.
+      await prisma.user.updateMany({ where: { id: { in: otherActiveAdmins.map((a) => a.id) } }, data: { isActive: false } });
+
+      const ROUNDS = 5;
+      for (let round = 0; round < ROUNDS; round++) {
+        await prisma.user.updateMany({ where: { id: { in: [adminX.id, adminY.id] } }, data: { roleId: adminRole.id, isActive: true } });
+        const activeAdminsBefore = await prisma.user.count({ where: { isActive: true, roleId: adminRole.id } });
+        expect(activeAdminsBefore).toBe(2);
+
+        const [loginX, loginY] = await Promise.all([
+          request(app.getHttpServer()).post('/auth/login').set('x-api-key', apiKey).send({ email: adminX.email, password: seedPassword }),
+          request(app.getHttpServer()).post('/auth/login').set('x-api-key', apiKey).send({ email: adminY.email, password: seedPassword }),
+        ]);
+        const [resX, resY] = await Promise.all([
+          request(app.getHttpServer()).patch(`/users/${adminX.id}/role`).set('x-api-key', apiKey).set('Authorization', `Bearer ${loginX.body.accessToken}`).send({ roleId: candidateRole.id }),
+          request(app.getHttpServer()).patch(`/users/${adminY.id}/role`).set('x-api-key', apiKey).set('Authorization', `Bearer ${loginY.body.accessToken}`).send({ roleId: candidateRole.id }),
+        ]);
+
+        expect([resX.status, resY.status].every((s) => s === 200 || s === 409)).toBe(true);
+        const activeAdminsAfter = await prisma.user.count({ where: { isActive: true, roleId: adminRole.id } });
+        // O invariante que importa: nunca ZERO admins ativos ao final.
+        expect(activeAdminsAfter).toBeGreaterThanOrEqual(1);
+      }
+    } finally {
+      await prisma.refreshToken.deleteMany({ where: { userId: { in: [adminX.id, adminY.id] } } });
+      await prisma.user.deleteMany({ where: { id: { in: [adminX.id, adminY.id] } } });
+      await prisma.user.updateMany({ where: { id: { in: otherActiveAdmins.map((a) => a.id) } }, data: { isActive: true } });
+    }
   });
 
   it('PATCH /users/:id/role removendo o ÚLTIMO ADMIN ativo -> 409', async () => {

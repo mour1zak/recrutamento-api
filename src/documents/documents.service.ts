@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../prisma/prisma.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
 import { isAdmin } from '../common/utils/role.util.js';
+import { isCompanyOperable } from '../common/utils/company-scope.util.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import { ApplicationStatus, DocumentType } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
@@ -73,18 +74,27 @@ export class DocumentsService {
     if (document.ownerId === currentUser.id || isAdmin(currentUser)) {
       return document;
     }
-    if (currentUser.companyId === null) {
+    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` —
+    // sem ela, um recrutador de empresa desativada continuava baixando
+    // arquivos normalmente.
+    const companyId = currentUser.companyId;
+    if (companyId === null || !(await isCompanyOperable(this.prisma, companyId))) {
       throw documentNotFound();
     }
-    // `document:read:application`: só se existir uma candidatura ligando
-    // este documento (como `resumeDocumentId` OU o dono como candidato) a
-    // uma vaga da empresa do recrutador, com status que já indica
-    // avaliação em andamento (mesma política de PII condicional do resto
-    // do projeto — nunca 403, sempre 404 fora do escopo).
+    // `document:read:application`: só se este documento específico foi
+    // ANEXADO (`resumeDocumentId`) a uma candidatura da empresa do
+    // recrutador, com status que já indica avaliação em andamento.
+    // Achado CRÍTICO Qwen rodada 12 (K6): a versão anterior também
+    // aceitava `{ candidateId: document.ownerId }` — bastava existir
+    // QUALQUER candidatura qualificada do candidato na empresa pra
+    // liberar TODOS os documentos dele, mesmo os nunca anexados a
+    // candidatura nenhuma (medido com um documento pessoal/sensível
+    // nunca anexado, liberado do mesmo jeito). Removida — só o vínculo
+    // explícito de anexo conta.
     const linkedApplication = await this.prisma.application.findFirst({
       where: {
-        OR: [{ resumeDocumentId: id }, { candidateId: document.ownerId }],
-        job: { companyId: currentUser.companyId },
+        resumeDocumentId: id,
+        job: { companyId },
         status: { in: STATUSES_THAT_GRANT_DOCUMENT_ACCESS },
       },
       select: { id: true },

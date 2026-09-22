@@ -67,37 +67,47 @@ export class RolesService {
       }
     }
 
-    // Gate Nível B ("trava de último administrador", mínimo viável —
-    // CONDICOES-ENTRADA-FASE2.md): o risco real aqui não é "zero admin
-    // ativo" (isso já é travado em `UsersService`), é "zero PAPEL com
-    // `role:manage`" — se essa mudança remover a última concessão dessa
-    // key no sistema inteiro, ninguém (nem um novo ADMIN futuro) consegue
-    // mais chamar esta própria rota pra desfazer o erro. Bloqueado antes
-    // de escrever, não depois.
-    const roleManagePermission = await this.prisma.permission.findUnique({ where: { key: PERMISSIONS.ROLE_MANAGE } });
-    if (roleManagePermission && !permissionIds.includes(roleManagePermission.id)) {
-      const otherGrants = await this.prisma.rolePermission.count({
-        where: { permissionId: roleManagePermission.id, roleId: { not: id } },
-      });
-      if (otherGrants === 0) {
-        throw new ConflictException(
-          errorBody(409, 'sem_papel_com_role_manage', 'Esta mudança deixaria o sistema sem nenhum papel com "role:manage" — ninguém mais conseguiria gerenciar papéis depois.'),
-        );
-      }
-    }
+    // Achado CRÍTICO Qwen rodada 12 (K2): a versão anterior fazia a
+    // contagem de "outros papéis com role:manage" FORA da transação de
+    // escrita — duas requisições `PUT` simultâneas em papéis DIFERENTES,
+    // cada uma removendo `role:manage` do seu próprio papel, contavam
+    // "o outro papel ainda tem" ao mesmo tempo, as duas viam "sobra
+    // alguém" e as duas escreviam. Medido: 10 em 12 corridas deixaram o
+    // sistema com ZERO papéis com `role:manage` — um estado
+    // irrecuperável pela API (a própria rota que desfaria isso exige a
+    // permissão que acabou de sumir). Corrigido envolvendo a contagem E
+    // a escrita na MESMA transação `Serializable` — mesmo padrão já
+    // provado em `UsersService.deactivate()` (rodada 5/6): o Postgres
+    // detecta a dependência entre as duas transações concorrentes e
+    // aborta uma delas com conflito de serialização, que o
+    // `GlobalExceptionFilter` já traduz para `409` desde a rodada 6.
+    await this.prisma.$transaction(
+      async (tx) => {
+        const roleManagePermission = await tx.permission.findUnique({ where: { key: PERMISSIONS.ROLE_MANAGE } });
+        if (roleManagePermission && !permissionIds.includes(roleManagePermission.id)) {
+          const otherGrants = await tx.rolePermission.count({
+            where: { permissionId: roleManagePermission.id, roleId: { not: id } },
+          });
+          if (otherGrants === 0) {
+            throw new ConflictException(
+              errorBody(409, 'sem_papel_com_role_manage', 'Esta mudança deixaria o sistema sem nenhum papel com "role:manage" — ninguém mais conseguiria gerenciar papéis depois.'),
+            );
+          }
+        }
 
-    // Achado registrado, não corrigido agora (custo de uma migration nova
-    // fora do orçamento de tempo restante): a revogação aqui é
-    // destrutiva (`deleteMany` + `createMany`), não soft-delete com
-    // autor — Gate Nível B pede o soft-delete pra auditar QUEM revogou
-    // o quê e QUANDO; hoje só o estado final fica registrado, o
-    // histórico da mudança em si não.
-    await this.prisma.$transaction([
-      this.prisma.rolePermission.deleteMany({ where: { roleId: id } }),
-      ...(permissionIds.length > 0
-        ? [this.prisma.rolePermission.createMany({ data: permissionIds.map((permissionId) => ({ roleId: id, permissionId })) })]
-        : []),
-    ]);
+        // Achado registrado, não corrigido agora (custo de uma migration
+        // nova fora do orçamento de tempo restante): a revogação aqui é
+        // destrutiva (`deleteMany` + `createMany`), não soft-delete com
+        // autor — Gate Nível B pede o soft-delete pra auditar QUEM
+        // revogou o quê e QUANDO; hoje só o estado final fica
+        // registrado, o histórico da mudança em si não.
+        await tx.rolePermission.deleteMany({ where: { roleId: id } });
+        if (permissionIds.length > 0) {
+          await tx.rolePermission.createMany({ data: permissionIds.map((permissionId) => ({ roleId: id, permissionId })) });
+        }
+      },
+      { isolationLevel: 'Serializable' },
+    );
 
     return this.findOne(id);
   }

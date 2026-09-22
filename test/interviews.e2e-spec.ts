@@ -28,6 +28,7 @@ describe('Interviews (e2e)', () => {
   let candidateToken: string;
   let applicationInInterviewId: number;
   let applicationPendingId: number;
+  let companyAId: number;
   const cleanupUserIds: number[] = [];
   const cleanupCompanyIds: number[] = [];
 
@@ -48,6 +49,7 @@ describe('Interviews (e2e)', () => {
       prisma.user.findFirstOrThrow({ where: { email: 'admin@recrutamento.test' }, omit: { password: false } }).then((u) => u.password),
     ]);
     cleanupCompanyIds.push(companyA.id, companyB.id);
+    companyAId = companyA.id;
 
     const [recruiterA, recruiterB] = await Promise.all([
       prisma.user.create({ data: { name: 'Recrutador A Interviews', email: `recrutador-a-interviews-${Date.now()}@example.com`, password: someHash, roleId: recruiterRole.id, companyId: companyA.id } }),
@@ -197,5 +199,26 @@ describe('Interviews (e2e)', () => {
       .set('x-api-key', apiKey)
       .set('Authorization', `Bearer ${candidateToken}`)
       .expect(403);
+  });
+
+  // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` em
+  // `InterviewsService` — recrutador de empresa desativada continuava
+  // lendo/escrevendo entrevistas normalmente.
+  describe('K5: empresa desativada bloqueia acesso do recrutador a entrevistas', () => {
+    it('empresa desativada -> GET /applications/:id/interviews, GET /interviews/:id e PATCH todos 404', async () => {
+      await prisma.company.update({ where: { id: companyAId }, data: { isActive: false } });
+      try {
+        const [listRes, getRes, patchRes] = await Promise.all([
+          request(app.getHttpServer()).get(`/applications/${applicationInInterviewId}/interviews`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`),
+          request(app.getHttpServer()).get(`/interviews/${rescheduledInterviewId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`),
+          request(app.getHttpServer()).patch(`/interviews/${rescheduledInterviewId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).send({ feedback: 'x' }),
+        ]);
+        expect(listRes.status).toBe(404);
+        expect(getRes.status).toBe(404);
+        expect(patchRes.status).toBe(404);
+      } finally {
+        await prisma.company.update({ where: { id: companyAId }, data: { isActive: true } });
+      }
+    });
   });
 });

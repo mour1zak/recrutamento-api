@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { UsersModule } from './users/users.module.js';
 import { CompaniesModule } from './companies/companies.module.js';
 import { JobsModule } from './jobs/jobs.module.js';
+import { CandidateProfileModule } from './candidate-profile/candidate-profile.module.js';
 import { ApiKeyGuard } from './common/guards/api-key.guard.js';
 import { PermissionsGuard } from './common/guards/permissions.guard.js';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard.js';
@@ -34,6 +35,7 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter.
     AuthModule,
     CompaniesModule,
     JobsModule,
+    CandidateProfileModule,
   ],
   controllers: [AppController],
   providers: [

@@ -5,14 +5,15 @@
 > `Companies` e `Jobs` fechados na Rodada 9 (**APROVADO COM RESSALVAS**,
 > depois de reprovação na Rodada 8 por 3 críticos de isolamento entre
 > empresas e concorrência — todos corrigidos e reverificados sob carga
-> maior, 0 violações em 96+ execuções concorrentes). Auth completo, RBAC
+> maior, 0 violações em 96+ execuções concorrentes). `CandidateProfile`
+> implementado (ainda não auditado pelo Qwen). Auth completo, RBAC
 > dinâmico de ponta a ponta, filtro global de exceções, integração
-> externa de CEP obrigatória do enunciado. **60 testes automatizados
+> externa de CEP obrigatória do enunciado. **72 testes automatizados
 > verdes** — 9 dos 10 cenários obrigatórios de teste já cobertos. O
 > DeepSeek já entregou o mapa dos 41 endpoints do restante do domínio
-> (Application/CandidateProfile/Interview/Document/Users/RBAC Nível B) —
-> implementação em andamento. Este README é atualizado a cada fase
-> concluída — documento histórico da avaliação, não tarefa de última
+> (Application/Interview/Document/Users/RBAC Nível B) — implementação em
+> andamento. Este README é atualizado a cada fase concluída — documento
+> histórico da avaliação, não tarefa de última
 > hora.
 
 ## 1. Objetivo
@@ -39,7 +40,7 @@ deixamos isso implícito no código._
 | Modelagem Prisma com relacionamentos, constraints, enums | 🟢 Aprovada com ressalvas pelo Qwen (`prisma/schema.prisma`), migration aplicada |
 | Autenticação JWT + `@CurrentUser()` | 🟢 Concluído: registro, login, refresh (com rotação), logout (`src/auth/`) |
 | Autorização por papel (CANDIDATE/RECRUITER/ADMIN) | 🟢 RBAC dinâmico funcionando de ponta a ponta: `PATCH /users/:id/deactivate` (`user:manage`) provado com teste e2e — quem tem a permissão passa, quem não tem recebe `403` |
-| CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate), `Company` (CRUD completo) e `Job` (CRUD + transições de status) implementados; demais entidades ainda não |
+| CRUDs / gestão das entidades | 🟡 `User` (deactivate/reactivate), `Company` (CRUD completo), `Job` (CRUD + transições de status) e `CandidateProfile` (leitura/atualização com visibilidade condicional) implementados; `Application`/`Interview`/`Document` ainda não |
 | Consultas por relacionamento | ⬜ Não iniciado |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟡 Desenhado (`docs/fases/FASE-1-MODELAGEM.md`), não implementado |
 | Upload de currículo/documento | ⬜ Não iniciado |
@@ -262,9 +263,10 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **60 testes automatizados, todos
-verdes** (56 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
-`test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts`, 4 unitários em
+e o teste não enviava a chave). Hoje: **72 testes automatizados, todos
+verdes** (68 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+`test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
+`test/candidate-profile.e2e-spec.ts`, 4 unitários em
 `src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts`),
 cobrindo os cenários obrigatórios de auth (400/401/409, fluxo completo de
 registro/login/refresh/logout, uma rota protegida por permission key, e a
@@ -273,7 +275,9 @@ temporários, 4 pares de desativação mútua simultânea, nunca `500`), o
 CRUD completo de `Company` e `Job` (403/404/409 com `reason` estruturado,
 isolamento entre empresas testado com o usuário real do seed, corrida de
 transição de status testada com `Promise.all` — 10 rodadas seguidas,
-asserção baseada no invariante real, não em quem vence a corrida), e a
+asserção baseada no invariante real, não em quem vence a corrida), a
+visibilidade condicional de `CandidateProfile` (reduzido/completo
+conforme o status real de uma `Application`, nunca `403`), e a
 integração externa de CEP funcionando e falhando de forma controlada
 (contra o ViaCEP real, sem mock — o único mock do projeto é o `HttpService`
 no teste unitário do
@@ -308,6 +312,9 @@ CE-1, sem exceção nenhuma, nem para as rotas públicas de auth).
 | `GET` | `/jobs/:id` | JWT + permission `job:read` | — | `200` se `OPEN`, ou se `job:read:any` + mesma empresa; `404` caso contrário |
 | `PATCH` | `/jobs/:id` | JWT + permission `job:update` | `{title?, description?, vacancies?, salaryMin?, salaryMax?, isRemote?}` | `200`; `400` DTO; `404` fora do escopo; `409` `vacancies` abaixo do já preenchido (`reason: "vacancies_below_filled_count"`) |
 | `PATCH` | `/jobs/:id/status` | JWT + permission `job:status:update` | `{status}` | `200`; `400` transição inválida (`reason: "invalid_status_transition"`); `404` fora do escopo; `409` `FILLED` sem preencher todas as vagas (`reason: "job_not_fully_filled"`) |
+| `GET` | `/candidates/me` | JWT + permission `candidate-profile:read` | — | `200`; `404` perfil ainda não criado |
+| `PATCH` | `/candidates/me` | JWT + permission `candidate-profile:update:own` | `{headline?, summary?, phone?, cep?, skills?}` | `200` (upsert — cria na primeira chamada); `400` DTO/CEP |
+| `GET` | `/candidates/:userId` | JWT + permission `candidate-profile:read` | — | `200` completo (dono/ADMIN) ou reduzido (RECRUITER com candidatura `PENDING`); `404` não é candidato, sem relação, ou fora do escopo |
 
 **Nota sobre formato de erro:** a partir de `Companies`, respostas `404`/`409`
 de regra de negócio ganham um campo `reason` machine-readable além de
@@ -363,3 +370,15 @@ cascateia o status da vaga (isso destruiria informação que o
 pública passou a considerar `company.isActive`. O dono (`job:read:any` +
 mesma empresa) continua lendo o próprio histórico normalmente, empresa
 ativa ou não.
+
+**Nota sobre visibilidade condicional de `CandidateProfile` (Fase 1,
+Pergunta 2 do DeepSeek):** `GET /candidates/:userId` nunca devolve `403`
+— sempre `200` (completo ou reduzido) ou `404`. Um RECRUITER só enxerga
+o perfil se existir alguma candidatura do candidato pra uma vaga da
+própria empresa (`404` caso contrário, mesma política anti-enumeração do
+resto do projeto); enxerga **completo** se alguma candidatura já saiu de
+`PENDING` (a empresa já tomou alguma ação), senão só o **reduzido**
+(`id`, `name`, `headline`, `skills` — sem `summary`/`phone`/endereço). O
+dono e o ADMIN sempre veem completo. `PATCH /candidates/me` é *upsert*
+de propósito — não existe `POST` separado, o perfil nasce na primeira
+atualização.

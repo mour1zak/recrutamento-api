@@ -54,6 +54,20 @@ const SCOPED_JOB_INCLUDE = {
   company: { select: { id: true, name: true } },
 } as const;
 
+// Usado só internamente em `findOne()` — precisa de `isActive` pra decidir
+// visibilidade pública (achado Qwen rodada 9, Q3/N8), mas o campo nunca
+// sai na resposta (`stripCompanyIsActive` remove antes de devolver).
+const SCOPED_JOB_INCLUDE_WITH_COMPANY_STATUS = {
+  company: { select: { id: true, name: true, isActive: true } },
+} as const;
+
+function stripCompanyIsActive<T extends { company: { id: number; name: string; isActive: boolean } }>(
+  job: T,
+): Omit<T, 'company'> & { company: { id: number; name: string } } {
+  const { company, ...rest } = job;
+  return { ...rest, company: { id: company.id, name: company.name } };
+}
+
 function jobNotFound() {
   return new NotFoundException(errorBody(404, 'job_not_found', 'Vaga não encontrada.'));
 }
@@ -151,6 +165,12 @@ export class JobsService {
   async findPublicList(query: ListJobsQueryDto) {
     const where: Prisma.JobWhereInput = {
       status: JobStatus.OPEN,
+      // Achado Qwen rodada 9 (Q3/N8): sem isso, a vitrine pública
+      // anunciava vagas de empresas desativadas — o candidato via o card,
+      // clicava, e `GET /companies/:id` já respondia "não encontrada" pra
+      // essa mesma empresa. Não afeta o dono (RECRUITER/ADMIN continuam
+      // lendo o próprio histórico via `/jobs/mine` e `/jobs/:id`).
+      company: { isActive: true },
       ...(query.search ? { title: { contains: escapeLikeWildcards(query.search), mode: 'insensitive' } } : {}),
     };
     const page = query.page ?? 1;
@@ -186,18 +206,24 @@ export class JobsService {
   }
 
   async findOne(id: number, currentUser: AuthenticatedUser) {
-    const job = await this.prisma.job.findUnique({ where: { id }, include: SCOPED_JOB_INCLUDE });
+    const job = await this.prisma.job.findUnique({ where: { id }, include: SCOPED_JOB_INCLUDE_WITH_COMPANY_STATUS });
     if (!job) {
       throw jobNotFound();
     }
-    if (job.status === JobStatus.OPEN) {
-      return job;
+    // Achado Qwen rodada 9 (Q3/N8): vaga OPEN só é publicamente visível
+    // se a empresa dona também estiver ativa — antes, uma vaga OPEN de
+    // empresa desativada continuava aparecendo pra qualquer um (mesmo
+    // bug da vitrine, aqui na rota de detalhe). O dono (job:read:any +
+    // mesma empresa) continua lendo o próprio histórico normalmente,
+    // ativa ou não — ver ramo abaixo.
+    if (job.status === JobStatus.OPEN && job.company.isActive) {
+      return stripCompanyIsActive(job);
     }
-    // Fora de OPEN, só quem tem `job:read:any` E é da mesma empresa (ou
-    // ADMIN) enxerga — pra qualquer outro caso, 404 (nunca revela que a
-    // vaga existe fora do estado público).
+    // Fora do caminho público, só quem tem `job:read:any` E é da mesma
+    // empresa (ou ADMIN) enxerga — pra qualquer outro caso, 404 (nunca
+    // revela que a vaga existe fora do estado público).
     if (currentUser.permissions.includes(PERMISSIONS.JOB_READ_ANY) && hasJobScope(job, currentUser)) {
-      return job;
+      return stripCompanyIsActive(job);
     }
     throw jobNotFound();
   }
@@ -225,8 +251,22 @@ export class JobsService {
       },
     });
     if (result.count === 0) {
+      // Achado Qwen rodada 9 (N3): `count === 0` aqui tinha duas causas
+      // possíveis (vaga saiu de escopo entre a leitura e a escrita, ou a
+      // invariante de fato foi violada) mapeadas pro mesmo `reason` sem
+      // distinção, e a mensagem tinha perdido os números concretos que a
+      // versão anterior (não atômica) dava. Re-consulta pra dar a
+      // resposta certa nos dois casos.
+      const current = await this.prisma.job.findUnique({ where: { id } });
+      if (!current || !hasJobScope(current, currentUser)) {
+        throw jobNotFound();
+      }
       throw new ConflictException(
-        errorBody(409, 'vacancies_below_filled_count', 'Não é possível reduzir vagas abaixo do que já foi preenchido.'),
+        errorBody(
+          409,
+          'vacancies_below_filled_count',
+          `Não é possível reduzir vagas para ${nextVacancies} — já foram preenchidas ${current.filledCount}.`,
+        ),
       );
     }
     return this.prisma.job.findUniqueOrThrow({ where: { id }, include: SCOPED_JOB_INCLUDE });
@@ -262,8 +302,19 @@ export class JobsService {
       data: { status: dto.status },
     });
     if (result.count === 0) {
+      // Achado Qwen rodada 9 (N4): a mensagem antiga dizia só "tente
+      // novamente" — um retry ingênuo reenviando o mesmo `status` bate
+      // numa transição que já não é mais válida a partir do estado atual
+      // (ex.: pediu OPEN→PAUSED, chegou tarde, o status virou CANCELED —
+      // reenviar "PAUSED" agora dá `400 invalid_status_transition`,
+      // trocando um erro recuperável por um permanente). A mensagem agora
+      // orienta reler o recurso antes de reenviar, não só "tente de novo".
       throw new ConflictException(
-        errorBody(409, 'status_changed_concurrently', 'O status da vaga mudou antes que esta operação fosse aplicada — tente novamente.'),
+        errorBody(
+          409,
+          'status_changed_concurrently',
+          'O status da vaga mudou antes que esta operação fosse aplicada. Busque o estado atual da vaga (GET) antes de tentar a transição de novo.',
+        ),
       );
     }
     return this.prisma.job.findUniqueOrThrow({ where: { id }, include: SCOPED_JOB_INCLUDE });

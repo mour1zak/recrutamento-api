@@ -2,17 +2,18 @@
 
 > **Status atual: Fase 2 (Auth/RBAC) fechada de vez na Rodada 7 pelo
 > Qwen** (APROVADO COM RESSALVAS) — ver `docs/fases/`. Módulos
-> `Companies` e `Jobs` auditados na Rodada 8 (**REPROVADO** — 3 críticos
-> de isolamento entre empresas e concorrência, todos corrigidos e
-> reverificados por execução, reapresentação em andamento). Auth
-> completo, RBAC dinâmico de ponta a ponta, filtro global de exceções,
-> integração externa de CEP obrigatória do enunciado. **59 testes
-> automatizados verdes** — 9 dos 10 cenários obrigatórios de teste já
-> cobertos. O DeepSeek já entregou o mapa dos 41 endpoints do restante do
-> domínio (Application/CandidateProfile/Interview/Document/Users/RBAC
-> Nível B) — implementação em andamento. Este README é atualizado a cada
-> fase concluída — documento histórico da avaliação, não tarefa de
-> última hora.
+> `Companies` e `Jobs` fechados na Rodada 9 (**APROVADO COM RESSALVAS**,
+> depois de reprovação na Rodada 8 por 3 críticos de isolamento entre
+> empresas e concorrência — todos corrigidos e reverificados sob carga
+> maior, 0 violações em 96+ execuções concorrentes). Auth completo, RBAC
+> dinâmico de ponta a ponta, filtro global de exceções, integração
+> externa de CEP obrigatória do enunciado. **60 testes automatizados
+> verdes** — 9 dos 10 cenários obrigatórios de teste já cobertos. O
+> DeepSeek já entregou o mapa dos 41 endpoints do restante do domínio
+> (Application/CandidateProfile/Interview/Document/Users/RBAC Nível B) —
+> implementação em andamento. Este README é atualizado a cada fase
+> concluída — documento histórico da avaliação, não tarefa de última
+> hora.
 
 ## 1. Objetivo
 
@@ -99,6 +100,34 @@ Cada fase tem um documento em `docs/fases/` com: a modelagem/decisão
 proposta, o motivo (\"porquê\", não só \"o quê\"), e o veredito das revisões
 externas antes de avançar para a próxima fase. Ver `docs/fases/FASE-1-MODELAGEM.md`.
 
+### 3.1 Divergências da estrutura originalmente planejada
+
+O prompt de orquestração inicial deste projeto (documento interno da
+equipe, não o enunciado da avaliação) especificava uma estrutura de
+pastas e um conjunto de ferramentas específico. Ao longo da
+implementação, alguns pontos divergiram — registrado aqui porque nenhuma
+dessas mudanças foi anunciada explicitamente no momento em que aconteceu,
+e o projeto tem o hábito de documentar decisões, não escondê-las.
+
+**Nenhum desses itens é exigido pelo enunciado da avaliação
+(`AV-04-RECRUTAMENTO.md`)** — ele não especifica estrutura de pastas nem
+framework de teste; o que ele exige (stack, entidades, regras de negócio,
+segurança, testes, documentação) está coberto independente da organização
+interna do código.
+
+| Planejado originalmente | Implementado | Motivo |
+|---|---|---|
+| `src/modules/{auth,users,...}` | `src/{auth,users,companies,jobs}` (sem prefixo `modules/`) | Nenhum — só o jeito como a implementação evoluiu; funcionalmente idêntico, ambos são convenção comum em NestJS |
+| `RolesGuard` (papel fixo) | `PermissionsGuard` (RBAC dinâmico via banco) | **Decisão consciente**, documentada desde `FASE-1-MODELAGEM.md` — permite editar permissões em runtime (Nível B), inspirado em auditoria de projeto anterior |
+| Jest (`test/jest-e2e.json`) | Vitest (`vitest.config.e2e.ts`) | Escolha de ferramenta feita no scaffolding inicial (Dia 1), nunca revisitada |
+| Zod/ClassValidator para ENV | Joi (via `@nestjs/config`) | Escolha de ferramenta; auditado e aprovado pelo Qwen (Fase 2) |
+| `TestContainers` nos testes e2e | PostgreSQL local real (`recrutamento_test`) | Evita dependência de Docker rodando durante o desenvolvimento; mesmo princípio (banco real, não mock) |
+| `prisma/seeds/` (pasta, dados massivos) | `prisma/seed.ts` (arquivo único, mínimo) | Seed mínimo por fase (RBAC + 1 usuário por papel); dados de domínio completos ficam para quando os módulos existirem |
+| Swagger no `main.ts` desde o início | Ainda não implementado | Decisão explícita: implementar só quando os controllers de domínio estabilizarem, para não retrabalhar |
+| `ThrottlerGuard` conectado | `@nestjs/throttler` instalado, guard não conectado | Rate limiting é item pendente (N9, `FEEDBACKS-MELHORIA.md`) |
+| `.github/workflows/` com CI | Ainda não implementado | Registrado como melhoria futura (`FEEDBACKS-MELHORIA.md` #14) |
+| `docker/`, `Dockerfile`, observabilidade | Em construção (sessão paralela) | Trabalho em andamento — ver `docs/fases/` mais recentes |
+
 ## 4. Instalação e execução
 
 Passos testados de verdade nesta máquina (Windows, PostgreSQL 18 local,
@@ -175,6 +204,16 @@ npm run start:prod
 
 ### 4.7 Testes
 
+**A suíte assume um banco de teste recém-semeado** (achado Qwen rodada 9,
+N6): alguns testes fazem afirmações absolutas sobre o estado do banco
+(ex.: "existe exatamente 1 ADMIN ativo") que quebram se outro processo
+(inclusive uma sessão de auditoria externa) já tiver criado dados no
+mesmo banco antes. Rode sempre `npm run db:reset:test` antes de
+`npm run test:e2e` se a suíte falhar de um jeito que pareça "número
+errado" em vez de "comportamento errado" — é sinal de banco sujo, não de
+bug de produto (o próprio Qwen reproduziu isso e confirmou 10/10 verde
+depois do reset).
+
 Requer a migration e o seed aplicados no banco de **teste**
 (`recrutamento_test`, configurado em `.env.test` — já versionado com
 segredos dedicados só de teste, funciona em clone novo sem configuração
@@ -223,8 +262,8 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **59 testes automatizados, todos
-verdes** (55 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+e o teste não enviava a chave). Hoje: **60 testes automatizados, todos
+verdes** (56 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts`, 4 unitários em
 `src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts`),
 cobrindo os cenários obrigatórios de auth (400/401/409, fluxo completo de
@@ -233,9 +272,11 @@ trava de último administrador sob concorrência real — 8 admins
 temporários, 4 pares de desativação mútua simultânea, nunca `500`), o
 CRUD completo de `Company` e `Job` (403/404/409 com `reason` estruturado,
 isolamento entre empresas testado com o usuário real do seed, corrida de
-transição de status testada com `Promise.all`), e a integração externa de
-CEP funcionando e falhando de forma controlada (contra o ViaCEP real, sem
-mock — o único mock do projeto é o `HttpService` no teste unitário do
+transição de status testada com `Promise.all` — 10 rodadas seguidas,
+asserção baseada no invariante real, não em quem vence a corrida), e a
+integração externa de CEP funcionando e falhando de forma controlada
+(contra o ViaCEP real, sem mock — o único mock do projeto é o `HttpService`
+no teste unitário do
 `CepService`, pra provocar timeout de forma determinística). 9 dos 10
 cenários obrigatórios do enunciado já cobertos (ver §2.1); falta só #8
 (upload), que depende de `Document`, ainda não implementado.
@@ -310,3 +351,15 @@ sem nenhuma rota que resolvesse isso num nome. A listagem pública
 nem `filledCount` (achado R5 — nenhum dos dois pertence a uma vitrine
 pública); as rotas autenticadas (`/jobs/mine`, `/jobs/:id`) continuam com
 os campos completos.
+
+**Nota sobre visibilidade pública e empresa desativada (achado Qwen
+rodada 9, Q3/N8):** uma vaga `OPEN` só é visível publicamente
+(`GET /jobs` e `GET /jobs/:id` para quem não é da empresa) se a empresa
+dona também estiver ativa — antes, desativar uma empresa não escondia
+suas vagas já publicadas, e a vitrine chegava a anunciar uma empresa que
+`GET /companies/:id` já dizia "não encontrada". A correção **não**
+cascateia o status da vaga (isso destruiria informação que o
+`reactivate` de empresa não conseguiria desfazer) — só a visibilidade
+pública passou a considerar `company.isActive`. O dono (`job:read:any` +
+mesma empresa) continua lendo o próprio histórico normalmente, empresa
+ativa ou não.

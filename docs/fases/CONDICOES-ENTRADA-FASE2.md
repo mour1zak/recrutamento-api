@@ -142,6 +142,35 @@ JWT — decisão de UX, não de segurança, antes da Fase 5);
 `RECRUITER ⇒ companyId NOT NULL` como invariante de banco
 (`FEEDBACKS-MELHORIA.md` #16 — recomendado antes do Gate Fase 3 abaixo).
 
+## Adendo rodada 9 — APROVADO COM RESSALVAS (Fase 3 fechada: Companies + Jobs)
+
+Reapresentação da Rodada 8 (que reprovou com 3 críticos). **Os três
+fecharam sob carga maior** (96+ execuções concorrentes, matriz completa
+papel×empresa, 0 violações) — ver `PARECER-QWEN-FASE3-DOMINIO-RODADA9.md`
+e `TRIAGEM-REVISOES-RODADA9.md`.
+
+Dois achados novos corrigidos nesta rodada:
+- **N2** — o teste que provava a correção do C2 (rodada 8) tinha uma
+  asserção falsa como invariante ("exatamente uma responde 200"), falha
+  em ~5% das execuções num resultado legítimo. Reescrito para o
+  invariante real (estado terminal nunca desfeito), rodado 10× por
+  execução, confirmado 8 execuções seguidas sem falha.
+- **Q3/N8** — vitrine pública anunciava vaga de empresa desativada que
+  `GET /companies/:id` já dizia não existir. Corrigido filtrando
+  **visibilidade pública** por `company.isActive` (sem cascatear o
+  status da vaga — o dono continua lendo o próprio histórico).
+
+**Registrado, sem bloquear o avanço:**
+- **N1 (Gate Nível B):** `hasJobScope()` decide acesso global de ADMIN
+  por `roleName === 'ADMIN'` (string sem proteção no banco) — não
+  alcançável pela API hoje, vira gate do Nível B (ver seção abaixo).
+- **Antes de `Application`:** decisão sobre candidatura em vaga de
+  empresa desativada (preliminar: não aceitar); `GET /jobs/:id` (vaga
+  `OPEN`) ainda expõe `createdById`/`filledCount` pra quem não tem
+  `job:read:any` (R5 parcial); N9 (rate limiting) e N15 (pool do `pg`)
+  reforçados — `GET /jobs` público agora faz `LIKE` + `count` + join de
+  company por página.
+
 ## Passo 1 — antes do primeiro Guard/seed
 
 - [x] **CE-1 decidido**: consumidor sempre confiável, API key global sem
@@ -307,6 +336,17 @@ JWT — decisão de UX, não de segurança, antes da Fase 5);
 - [ ] `isSystem` efetivamente impede rename/exclusão dos 3 papéis do
       enunciado no Service (hoje o campo existe mas não protege nada
       sozinho).
+- [ ] **N1 (Qwen, rodada 9):** `JobsService.hasJobScope()` decide acesso
+      global de ADMIN comparando `roleName === 'ADMIN'` — uma string sem
+      proteção no banco. Provado por execução: renomear o papel ADMIN e
+      criar um novo papel chamado "ADMIN" com `companyId` de outra
+      empresa dá acesso cruzado a esse impostor, e o ADMIN real (papel
+      renomeado) perde acesso. Não alcançável pela API hoje (exige este
+      próprio Gate Nível B), mas vira explorável no dia em que existir.
+      Correção recomendada pelo Qwen: trocar a checagem de nome de papel
+      por uma permission key dedicada (`job:write:any` ou equivalente),
+      o mesmo mecanismo que `job:read:any` já usa — resolve
+      estruturalmente em vez de proteger só o nome "ADMIN".
 
 ## Decisão CE-1 — resolvida
 

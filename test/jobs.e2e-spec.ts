@@ -348,34 +348,56 @@ describe('Jobs (e2e)', () => {
    * Corrigido com `updateMany` condicionado ao status lido — a segunda
    * escrita perde de verdade, nunca aplica por cima silenciosamente.
    */
-  describe('C2 (rodada 8): duas transições simultâneas nunca sobrescrevem um estado terminal', () => {
-    it('OPEN -> {CANCELED, PAUSED} simultâneos: exatamente uma vence, e o banco reflete só ela', async () => {
-      const job = await prisma.job.create({
-        data: { title: 'Vaga Concorrência', description: 'X', vacancies: 1, isRemote: true, companyId: companyAId, createdById: adminUserId, status: 'OPEN' },
-      });
+  describe('C2 (rodada 8, asserção corrigida na rodada 9): duas transições simultâneas nunca sobrescrevem um estado terminal', () => {
+    // Achado Qwen rodada 9 (N2): a asserção original ("exatamente uma
+    // responde 200") é FALSA como invariante — existe um entrelaçamento
+    // legítimo em que a requisição de PAUSED commita primeiro, e a de
+    // CANCELED lê `PAUSED` depois (não mais `OPEN`) e aplica
+    // `PAUSED→CANCELED`, que É uma transição válida. Isso produz
+    // `[200,200]` com `final=CANCELED` — resultado correto, não uma
+    // corrida perdida. A versão anterior deste teste falhava ~5% das
+    // execuções nesse cenário legítimo (Qwen capturou
+    // `AssertionError: expected 2 to be 1` rodando 20x).
+    //
+    // O invariante real (o que "nunca sobrescreve estado terminal"
+    // realmente significa): nenhum 5xx; o estado final é sempre um dos
+    // dois pedidos (nunca um terceiro valor); e se a requisição de
+    // CANCELED respondeu 200, o estado final TEM que ser CANCELED — um
+    // "sim" pra cancelar nunca pode ser desfeito por um "pause" perdedor.
+    // Rodado 10x (sugestão do Qwen — uma corrida só não pega regressão
+    // com confiança), cada vez numa vaga nova.
+    it('OPEN -> {CANCELED, PAUSED} simultâneos, 10 rodadas: nenhum 5xx, e CANCELED bem-sucedido nunca é desfeito', async () => {
+      for (let i = 0; i < 10; i++) {
+        const job = await prisma.job.create({
+          data: { title: `Vaga Concorrência ${i}`, description: 'X', vacancies: 1, isRemote: true, companyId: companyAId, createdById: adminUserId, status: 'OPEN' },
+        });
 
-      const [r1, r2] = await Promise.all([
-        request(app.getHttpServer())
-          .patch(`/jobs/${job.id}/status`)
-          .set('x-api-key', apiKey)
-          .set('Authorization', `Bearer ${recruiterAToken}`)
-          .send({ status: 'CANCELED' }),
-        request(app.getHttpServer())
-          .patch(`/jobs/${job.id}/status`)
-          .set('x-api-key', apiKey)
-          .set('Authorization', `Bearer ${recruiterAToken}`)
-          .send({ status: 'PAUSED' }),
-      ]);
+        const [cancelRes, pauseRes] = await Promise.all([
+          request(app.getHttpServer())
+            .patch(`/jobs/${job.id}/status`)
+            .set('x-api-key', apiKey)
+            .set('Authorization', `Bearer ${recruiterAToken}`)
+            .send({ status: 'CANCELED' }),
+          request(app.getHttpServer())
+            .patch(`/jobs/${job.id}/status`)
+            .set('x-api-key', apiKey)
+            .set('Authorization', `Bearer ${recruiterAToken}`)
+            .send({ status: 'PAUSED' }),
+        ]);
 
-      const statuses = [r1.status, r2.status];
-      expect(statuses.every((s) => s === 200 || s === 409 || s === 400)).toBe(true);
-      expect(statuses.filter((s) => s === 200).length).toBe(1);
+        const statuses = [cancelRes.status, pauseRes.status];
+        expect(statuses.every((s) => s < 500)).toBe(true);
 
-      const winnerStatus = r1.status === 200 ? 'CANCELED' : 'PAUSED';
-      const fresh = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
-      expect(fresh.status).toBe(winnerStatus);
+        const fresh = await prisma.job.findUniqueOrThrow({ where: { id: job.id } });
+        expect(['CANCELED', 'PAUSED']).toContain(fresh.status);
+        if (cancelRes.status === 200) {
+          // Regra de ouro: se o cancelamento foi aceito, ele é definitivo
+          // — nada pode tê-lo revertido, nem um PAUSED que chegou depois.
+          expect(fresh.status).toBe('CANCELED');
+        }
 
-      await prisma.job.delete({ where: { id: job.id } });
+        await prisma.job.delete({ where: { id: job.id } });
+      }
     });
   });
 
@@ -439,9 +461,32 @@ describe('Jobs (e2e)', () => {
         .expect(404);
     });
 
-    it('vaga já OPEN da empresa desativada continua visível na vitrine pública (decisão registrada: sem cascata retroativa)', async () => {
-      const res = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
-      expect(res.body.data.some((j: { id: number }) => j.id === openJobOfInactiveCompanyId)).toBe(true);
+    // Achado Qwen rodada 9 (Q3/N8): a decisão original da rodada 8 ("sem
+    // cascata retroativa — vaga já OPEN continua na vitrine") criava uma
+    // inconsistência visível: a vitrine anunciava uma empresa que a
+    // própria API já dizia não existir (`GET /companies/:id` → 404).
+    // Corrigido sem cascatear o STATUS da vaga (isso destruiria
+    // informação que o `reactivate` não conseguiria desfazer) — só a
+    // VISIBILIDADE pública passou a considerar `company.isActive`.
+    it('vaga já OPEN da empresa desativada some da vitrine pública e do detalhe público (Q3/N8, rodada 9)', async () => {
+      const list = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
+      expect(list.body.data.some((j: { id: number }) => j.id === openJobOfInactiveCompanyId)).toBe(false);
+
+      // Mas o dono (job:read:any + mesma empresa) continua lendo o
+      // próprio histórico normalmente — não é um "sumiço" de verdade.
+      await request(app.getHttpServer())
+        .get(`/jobs/${openJobOfInactiveCompanyId}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${inactiveCompanyRecruiterToken}`)
+        .expect(200);
+    });
+
+    it('vaga já OPEN da empresa desativada -> 404 pra quem não é dono (candidate, ex-visitante público)', () => {
+      return request(app.getHttpServer())
+        .get(`/jobs/${openJobOfInactiveCompanyId}`)
+        .set('x-api-key', apiKey)
+        .set('Authorization', `Bearer ${candidateToken}`)
+        .expect(404);
     });
   });
 });

@@ -43,7 +43,9 @@
 > hora local, não UTC, numa coluna sem fuso), índice único
 > case-insensitive de `User.email`, e pool de conexão do `pg` com timeout
 > explícito. **151 testes automatizados verdes** (9 unitários + 142 e2e).
-> Este
+> **Bônus concluídos**: Docker (multi-stage, Postgres, migrations
+> automáticas), Observabilidade (Loki + Promtail + Grafana), Seed, e
+> Swagger (`/docs`, 41 endpoints documentados em português, ver §2.2). Este
 > README é atualizado a cada fase concluída — documento histórico da
 > avaliação, não tarefa de última hora.
 
@@ -84,17 +86,23 @@ deixamos isso implícito no código._
 
 ### 2.2 Bônus (só depois do obrigatório)
 
-Paginação, filtros, ordenação, Swagger, seed, testes automatizados, Docker —
-todos ⬜ não iniciados.
+| Item | Status |
+|---|---|
+| Paginação/filtros/ordenação | 🟡 `?page&limit` em toda listagem (`PaginationQueryDto` compartilhado); filtros por status/role/companyId/isActive já existem nas listagens que fazem sentido; ordenação fixa (`createdAt desc`), não configurável pelo cliente ainda |
+| Testes automatizados | 🟢 151 testes (9 unitários + 142 e2e), muito além do mínimo — já contam como bônus mesmo sendo também ferramenta de auditoria |
+| Seed | 🟢 `prisma/seed.ts` — catálogo de permissões, papéis, um usuário de cada papel |
+| **Docker** | 🟢 **Concluído e verificado por execução dos dois lados** — `Dockerfile` multi-stage (deps/build/runtime, usuário não-root), `docker/compose.dev.yml` (API + Postgres + migrations automáticas via `prisma migrate deploy`), volumes persistentes (Postgres + uploads, com permissão corrigida pro usuário `node`), porta da API mapeada em `3001` (não conflita com o dev local em `3000`) |
+| **Observabilidade** | 🟢 **Concluída** — `docker/compose.obs.yml` com Loki + Promtail + Grafana, dashboard provisionado automaticamente filtrando os logs do container da API (`container="recrutamento-api"`), confirmado recebendo os logs do `LoggingInterceptor`/`GlobalExceptionFilter` em tempo real |
+| **Swagger** | 🟢 **Concluído e verificado no navegador** — `@nestjs/swagger` em `/docs` (fora do `ApiKeyGuard`, documentação pública), todos os 41 endpoints documentados em 9 tags em português, `@ApiOperation`/`@ApiResponse` cobrindo todo código HTTP que cada rota realmente retorna (nunca um `500` documentado), todas as propriedades de DTO com `@ApiProperty`/`@ApiPropertyOptional` e descrição em português, upload multipart com schema de arquivo, e os dois esquemas de segurança (`x-api-key`, `Bearer JWT`) funcionais no botão "Authorize" |
+
+Docker/observabilidade implementados numa VM Debian em paralelo (outra sessão do Claude Code, guiada pelo usuário), revisados aqui por leitura + verificação empírica cruzada (ex.: o achado de `UPLOAD_DIR`/`MAX_UPLOAD_SIZE_MB` sem efeito, corrigido neste lado; o achado de permissão do volume de uploads, corrigido do lado deles).
 
 ### 2.3 Além do pedido (diferenciais desta entrega)
 
 - Histórico de status de candidatura (`ApplicationStatusHistory`) como
   entidade auditável, não só um campo de status mutável.
-- Observabilidade com Loki/Promtail/Grafana, planejada para a Fase 4
-  (pasta `docker/` só aparece no repositório quando tiver arquivo real
-  dentro — Git não versiona diretório vazio; correção de imprecisão
-  apontada na auditoria Qwen rodada 2).
+- Observabilidade com Loki/Promtail/Grafana — implementada e verificada
+  (ver §2.2), dashboard já filtrando os logs da API em tempo real.
 - Documento de decisões técnicas por fase em `docs/fases/`, revisado por
   duas lentes externas (segurança/ORM e negócio) antes de avançar.
 - **API key como camada adicional ao JWT** (recomendação do avaliador, não
@@ -155,10 +163,10 @@ interna do código.
 | Zod/ClassValidator para ENV | Joi (via `@nestjs/config`) | Escolha de ferramenta; auditado e aprovado pelo Qwen (Fase 2) |
 | `TestContainers` nos testes e2e | PostgreSQL local real (`recrutamento_test`) | Evita dependência de Docker rodando durante o desenvolvimento; mesmo princípio (banco real, não mock) |
 | `prisma/seeds/` (pasta, dados massivos) | `prisma/seed.ts` (arquivo único, mínimo) | Seed mínimo por fase (RBAC + 1 usuário por papel); dados de domínio completos ficam para quando os módulos existirem |
-| Swagger no `main.ts` desde o início | Ainda não implementado | Decisão explícita: implementar só quando os controllers de domínio estabilizarem, para não retrabalhar |
+| Swagger no `main.ts` desde o início | Implementado depois, quando os 8 controllers de domínio já estavam estáveis | Decisão explícita registrada nesta mesma linha desde a Fase 2: implementar só quando os controllers estabilizassem, para não retrabalhar — cumprida, e concluída (ver §2.2) |
 | `ThrottlerGuard` conectado | `@nestjs/throttler` instalado, guard não conectado | Rate limiting é item pendente (N9, `FEEDBACKS-MELHORIA.md`) |
 | `.github/workflows/` com CI | Ainda não implementado | Registrado como melhoria futura (`FEEDBACKS-MELHORIA.md` #14) |
-| `docker/`, `Dockerfile`, observabilidade | Em construção (sessão paralela) | Trabalho em andamento — ver `docs/fases/` mais recentes |
+| `docker/`, `Dockerfile`, observabilidade | 🟢 Concluído (sessão paralela, revisado aqui) | Ver §2.2 |
 
 ## 4. Instalação e execução
 

@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query } from '@nestjs/common';
+import { ApiBearerAuth, ApiOperation, ApiParam, ApiResponse, ApiSecurity, ApiTags } from '@nestjs/swagger';
 import { JobsService } from './jobs.service.js';
 import { CreateJobDto } from './dto/create-job.dto.js';
 import { UpdateJobDto } from './dto/update-job.dto.js';
@@ -11,16 +12,28 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
+@ApiTags('Vagas')
+@ApiSecurity('api-key')
 @Controller('jobs')
 export class JobsController {
   constructor(private readonly jobsService: JobsService) {}
 
+  @ApiOperation({ summary: 'Criar vaga', description: 'RECRUITER cria na própria empresa automaticamente; ADMIN precisa informar `companyId`.' })
+  @ApiResponse({ status: 201, description: 'Vaga criada.' })
+  @ApiResponse({ status: 400, description: 'DTO inválido, ou `companyId` ausente para ADMIN.' })
+  @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
+  @ApiResponse({ status: 403, description: 'Sem a permissão `job:create`.' })
+  @ApiResponse({ status: 404, description: 'Empresa informada não encontrada/inativa (RECRUITER tentando outra empresa que não a própria também cai aqui, anti-enumeração).' })
+  @ApiBearerAuth('jwt')
   @Permissions(PERMISSIONS.JOB_CREATE)
   @Post()
   create(@Body() dto: CreateJobDto, @CurrentUser() user: AuthenticatedUser) {
     return this.jobsService.create(dto, user);
   }
 
+  @ApiOperation({ summary: 'Listar vagas públicas (vitrine)', description: 'Só API key — sem autenticação de usuário. Lista apenas vagas com status `OPEN`.' })
+  @ApiResponse({ status: 200, description: 'Página de vagas abertas.' })
+  @ApiResponse({ status: 401, description: 'API key ausente/inválida.' })
   // Sem @Permissions: rota pública (só API key), lista só vagas OPEN —
   // é a "vitrine" de vagas, quem ainda nem se candidatou pode navegar.
   @Public()
@@ -29,6 +42,11 @@ export class JobsController {
     return this.jobsService.findPublicList(query);
   }
 
+  @ApiOperation({ summary: 'Listar vagas da própria empresa', description: 'ADMIN vê de todas as empresas; RECRUITER só da própria. Qualquer status, com filtro opcional.' })
+  @ApiResponse({ status: 200, description: 'Página de vagas.' })
+  @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
+  @ApiResponse({ status: 403, description: 'Sem a permissão `job:read:any`.' })
+  @ApiBearerAuth('jwt')
   // Precisa vir ANTES de `:id` — senão o Nest tentaria casar "mine" como
   // valor de `:id` (ParseIntPipe rejeitaria com 400 antes de chegar aqui).
   @Permissions(PERMISSIONS.JOB_READ_ANY)
@@ -37,6 +55,13 @@ export class JobsController {
     return this.jobsService.findMine(user, query);
   }
 
+  @ApiOperation({ summary: 'Buscar vaga por ID', description: 'Vaga fora de `OPEN` só é visível para usuários da própria empresa dona da vaga (ou ADMIN).' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Vaga encontrada e visível para o usuário.' })
+  @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
+  @ApiResponse({ status: 403, description: 'Sem a permissão `job:read`.' })
+  @ApiResponse({ status: 404, description: 'Vaga inexistente, ou fora de `OPEN` e de empresa diferente da do usuário (anti-enumeração).' })
+  @ApiBearerAuth('jwt')
   // `job:read` é suficiente pra chegar aqui (as 3 roles têm essa key) —
   // a regra "só vê fora de OPEN se for da própria empresa" é decidida
   // dentro do Service, não no Guard, porque depende do estado da vaga.
@@ -46,12 +71,28 @@ export class JobsController {
     return this.jobsService.findOne(id, user);
   }
 
+  @ApiOperation({ summary: 'Atualizar vaga' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Vaga atualizada.' })
+  @ApiResponse({ status: 400, description: 'DTO inválido, ou `vacancies` menor que `filledCount` atual.' })
+  @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
+  @ApiResponse({ status: 403, description: 'Sem a permissão `job:update`.' })
+  @ApiResponse({ status: 404, description: 'Vaga não encontrada, ou de empresa diferente da do usuário.' })
+  @ApiBearerAuth('jwt')
   @Permissions(PERMISSIONS.JOB_UPDATE)
   @Patch(':id')
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateJobDto, @CurrentUser() user: AuthenticatedUser) {
     return this.jobsService.update(id, dto, user);
   }
 
+  @ApiOperation({ summary: 'Atualizar status da vaga', description: '`CANCELED` é o soft-delete oficial — não há rota de exclusão. Preserva o histórico de candidaturas/entrevistas/documentos vinculados.' })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({ status: 200, description: 'Status atualizado.' })
+  @ApiResponse({ status: 400, description: 'Transição de status inválida.' })
+  @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
+  @ApiResponse({ status: 403, description: 'Sem a permissão `job:status:update`.' })
+  @ApiResponse({ status: 404, description: 'Vaga não encontrada, ou de empresa diferente da do usuário.' })
+  @ApiBearerAuth('jwt')
   @Permissions(PERMISSIONS.JOB_STATUS_UPDATE)
   @Patch(':id/status')
   updateStatus(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateJobStatusDto, @CurrentUser() user: AuthenticatedUser) {

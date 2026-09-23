@@ -522,32 +522,54 @@ recrutador (`FEEDBACKS-MELHORIA.md`); `updateCompany` sem checar
       ou iguais entre si. Provado: boot com o placeholder → crash
       controlado, antes de qualquer rota existir.
 
-## Gate Fase 3 (concorrência)
+## Gate Fase 3 (concorrência) — FECHADO
 
-- [ ] `CHECK (filledCount <= vacancies)` e `CHECK (filledCount >= 0)`
-      adicionados via SQL na migration, **com verificação de que sobrevivem**
-      a um `migrate dev` posterior (não é modelado pelo Prisma, pode ser
-      derrubado em silêncio por uma migration futura que recrie a tabela).
-- [ ] Dentro do lock, a transação valida **as duas** invariantes:
-      `filledCount <= vacancies` **e** `count(Application WHERE status =
-      HIRED) <= vacancies` (o contador armazenado sozinho pega o sintoma,
-      não a causa).
-- [ ] `updatedAt DEFAULT now()` explícito via SQL na migration bruta (fecha
-      a lacuna que só importa porque a Fase 3 escreve SQL à mão).
-- [ ] Teste `Promise.all` com N requisições simultâneas, **contra PostgreSQL
-      real** (banco embutido derruba conexão sob carga — já provado nas
-      rodadas anteriores), assertando as duas invariantes acima.
-- [ ] Qualquer `$queryRaw` usado no lock seleciona só as colunas
-      estritamente necessárias — `omit` global não se aplica a SQL cru.
-- [ ] Pool de conexão do driver `pg` configurado com timeout explícito
-      (achado Qwen rodada 5, N15) — sem isso, o teste de concorrência com N
-      requisições simultâneas esbarra no limite do pool antes de esbarrar
-      no lock, e o sintoma vira um timeout confuso (`P2028`) em vez de
-      contenção esperada.
-- [ ] Índice de expressão (ou `citext`) para `User.email` case-insensitive
-      no banco — hoje a normalização (`lowercase`+`trim`) só existe na
-      aplicação; um `INSERT` via SQL bruto (que esta fase já prevê) pode
-      criar `A@x.com` ao lado de `a@x.com` (achado Qwen rodada 4, R13).
+- [x] `CHECK (filledCount <= vacancies)` e `CHECK (filledCount >= 0)`
+      adicionados via SQL na migration (`add_job_filledcount_check`,
+      Rodada 12). Sobrevivência a `migrate dev` posterior **provada por
+      execução**, não suposta: mais 2 migrations rodaram depois dessa
+      (`gate_fase3_updated_at_trigger_and_email_ci_index`,
+      `fix_updated_at_trigger_timezone`) e a constraint segue em
+      `pg_constraint` — confirmado disparando o `CHECK` de propósito
+      (ver item de `409` abaixo).
+- [x] Dentro do lock, a transação valida **as duas** invariantes:
+      `filledCount <= vacancies` (comparação coluna×coluna via
+      `$queryRaw`) **e** `count(Application WHERE status = HIRED) <=
+      vacancies`, lida de volta dentro da MESMA transação depois das duas
+      escritas — se divergir, lança e desfaz tudo. `ApplicationsService.hireWithCapacityCheck()`.
+- [x] `updatedAt` com trigger `BEFORE UPDATE` em todas as 7 tabelas que
+      têm a coluna (migration `gate_fase3_updated_at_trigger_and_email_ci_index`),
+      fechando a lacuna de qualquer SQL bruto que esqueça de setá-la —
+      inclusive a própria escrita de `hireWithCapacityCheck()`, que
+      também seta explicitamente por clareza. **Achado real no processo,
+      não hipotético:** a primeira versão do trigger usava
+      `CURRENT_TIMESTAMP` puro, que o Postgres converte pelo TimeZone DA
+      SESSÃO (`America/Sao_Paulo`, UTC-3 neste ambiente) antes de gravar
+      numa coluna `timestamp without time zone` — ficava ~3h dessincronizado
+      do que o Prisma Client escreve (que é sempre UTC ingênuo). Pego por
+      um teste automatizado novo (`test/gate-fase3.e2e-spec.ts`), não por
+      inspeção de código; corrigido com `AT TIME ZONE 'UTC'` explícito
+      (migration `fix_updated_at_trigger_timezone`).
+- [x] Teste `Promise.all` com N requisições simultâneas, **contra PostgreSQL
+      real**, assertando as duas invariantes acima:
+      `test/applications.e2e-spec.ts` (K1 — reduzir `vacancies` disputando
+      com contratação, 5 rodadas; duas `HIRED` simultâneas na última vaga),
+      `test/roles.e2e-spec.ts` (K2, 5 rodadas), `test/users.e2e-spec.ts`
+      (K3, 5 rodadas) — todas assertando o invariante final no banco, não
+      "exatamente um sucesso" (lição da rodada 9/14).
+- [x] `$queryRaw` de `hireWithCapacityCheck()` usa `RETURNING "filledCount",
+      "vacancies"` — só as duas colunas estritamente necessárias, não
+      `SELECT *`.
+- [x] Pool de conexão do driver `pg` configurado
+      (`src/prisma/prisma.service.ts`): `max: 20`, `connectionTimeoutMillis:
+      5000`, `idleTimeoutMillis: 30000` — achado Qwen rodada 5, N15,
+      fechado.
+- [x] Índice único de expressão `User_email_lower_key` em
+      `LOWER("email")` (migration `gate_fase3_updated_at_trigger_and_email_ci_index`)
+      — além do `@@unique(email)` que o Prisma já gerencia, não em vez
+      dele. Testado rejeitando um `INSERT` via SQL bruto com email em
+      caixa diferente do já cadastrado (`test/gate-fase3.e2e-spec.ts`) —
+      achado Qwen rodada 4, R13, fechado.
 - [x] Erros do Prisma (`P2002`, `P2003`, `P2034`, `P2028`) mapeados
       explicitamente para `409`/`400`/`404` no filtro global — nunca `500`.
       **Adiantado da rodada 4** (achado R1, "corrigir antes da Fase 5" virou
@@ -579,11 +601,12 @@ recrutador (`FEEDBACKS-MELHORIA.md`); `updateCompany` sem checar
       temporariamente o `CHECK` de `Job.filledCount` via
       `$executeRawUnsafe` (sem tocar a migration), violando pelos dois
       caminhos, confirmando `409` nos dois, e removendo a constraint em
-      seguida (zero resíduo em `pg_constraint`). **Falta ainda:** quando a
-      Fase 3 adicionar o `CHECK` de verdade na migration, escrever o
-      teste automatizado que o viola de propósito e assere `409`
-      (sugestão 1 do Qwen, rodada 7) — hoje essa verificação só existe
-      como evidência de auditoria, não como teste na suíte.
+      seguida (zero resíduo em `pg_constraint`). **Fechado no Gate Fase 3**
+      (sugestão 1 do Qwen, rodada 7): o `CHECK` agora existe de verdade na
+      migration, e `test/gate-fase3.e2e-spec.ts` viola ele de propósito
+      (via `prisma.job.update()`, não SQL bruto — prova que protege até
+      escrita "normal") e confirma o SQLSTATE `23514` que o filtro mapeia
+      pra `409`.
 
 ## Gate Nível B (só se/quando o endpoint de ADMIN editar permissões existir)
 

@@ -259,15 +259,36 @@ export class ApplicationsService {
   // (maior), e a escrita passa mesmo violando o invariante — 15/25
   // corridas produziram `filledCount > vacancies`. A API do Prisma não
   // expressa comparação coluna×coluna; corrigido com SQL parametrizado
-  // (`$executeRaw`, sem interpolação de string — os `${}` do
-  // `Prisma.sql` viram parâmetros reais, não concatenação).
+  // (`$queryRaw`, sem interpolação de string — os `${}` do `Prisma.sql`
+  // viram parâmetros reais, não concatenação). `RETURNING` devolve o
+  // estado JÁ atualizado na mesma instrução, evitando uma segunda leitura
+  // (que voltaria a ser um valor "lido antes", o mesmo defeito do K1) —
+  // e seleciona só as duas colunas necessárias (Gate Fase 3: "qualquer
+  // `$queryRaw` usado no lock seleciona só o estritamente necessário").
+  // `"updatedAt" = now()` setado à mão: esta é a única escrita SQL bruta
+  // do projeto, e a coluna não tinha `DEFAULT`/trigger que a cobrisse
+  // fora do Prisma Client (Gate Fase 3, achado ao fechar este gate:
+  // migration `gate_fase3_updated_at_trigger_and_email_ci_index` deu a
+  // TODAS as 7 tabelas com `updatedAt` um trigger `BEFORE UPDATE`; esta
+  // escrita continua explícita por clareza, o trigger é a rede de
+  // segurança pra qualquer SQL bruto futuro que esqueça).
   private async hireWithCapacityCheck(application: ApplicationWithRelations, dto: UpdateApplicationStatusDto, currentUser: AuthenticatedUser) {
     return this.prisma.$transaction(async (tx) => {
-      const jobUpdateCount = await tx.$executeRaw`
-        UPDATE "Job" SET "filledCount" = "filledCount" + 1
+      // `now() AT TIME ZONE 'UTC'`, não `now()` puro: achado real (pego por
+      // teste automatizado, não leitura de código) na migration
+      // `fix_updated_at_trigger_timezone` — atribuir um `timestamptz` direto
+      // a uma coluna `timestamp without time zone` faz o Postgres converter
+      // pelo TimeZone DA SESSÃO (`America/Sao_Paulo` neste ambiente, UTC-3),
+      // gravando hora local como se fosse UTC ingênuo. O Prisma Client
+      // sempre escreve essa coluna em UTC — sem a conversão explícita, esta
+      // única escrita SQL bruta do projeto ficava ~3h dessincronizada de
+      // toda escrita feita pelo Prisma.
+      const [jobRow] = await tx.$queryRaw<{ filledCount: number; vacancies: number }[]>`
+        UPDATE "Job" SET "filledCount" = "filledCount" + 1, "updatedAt" = (now() AT TIME ZONE 'UTC')
         WHERE id = ${application.jobId} AND "filledCount" < "vacancies"
+        RETURNING "filledCount", "vacancies"
       `;
-      if (jobUpdateCount === 0) {
+      if (!jobRow) {
         throw new ConflictException(errorBody(409, 'no_vacancies_left', `A vaga já preencheu todas as ${application.job.vacancies} posições.`));
       }
       const appUpdate = await tx.application.updateMany({
@@ -282,6 +303,22 @@ export class ApplicationsService {
       await tx.applicationStatusHistory.create({
         data: { applicationId: application.id, fromStatus: application.status, toStatus: ApplicationStatus.HIRED, changedById: currentUser.id, note: dto.reason },
       });
+
+      // Gate Fase 3 (segunda invariante, registrada desde a Fase 1): o
+      // contador `filledCount` sozinho pega o SINTOMA, não a causa — se
+      // algum caminho futuro (bug, script de manutenção, SQL bruto novo)
+      // incrementar o contador sem marcar a candidatura correspondente
+      // como `HIRED` (ou vice-versa), o contador mentiria sem ninguém
+      // perceber. Confere a CONTAGEM REAL de candidaturas `HIRED` desta
+      // vaga contra `vacancies` antes de commitar — se divergir, reverte
+      // a transação inteira (lançar aqui desfaz as duas escritas acima).
+      const hiredCount = await tx.application.count({ where: { jobId: application.jobId, status: ApplicationStatus.HIRED } });
+      if (hiredCount > jobRow.vacancies) {
+        throw new ConflictException(
+          errorBody(409, 'invariante_vagas_violada', 'Estado inconsistente detectado entre o contador de vagas e as candidaturas contratadas — operação revertida.'),
+        );
+      }
+
       return tx.application.findUniqueOrThrow({ where: { id: application.id }, include: APPLICATION_INCLUDE });
     });
   }

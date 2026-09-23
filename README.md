@@ -32,10 +32,18 @@
 > concorrência exclusiva demais (não por defeito no interceptor) — a
 > mesma classe de erro da rodada 9, agora com regra escrita pro projeto:
 > testes de concorrência sempre assertam o invariante final e o conjunto
-> de desfechos aceitos, nunca um único ramo específico. **148 testes
-> automatizados verdes** (9 unitários + 139 e2e), suíte completa rodada 8×
-> seguidas sem falha — **os 10 dos 10 cenários obrigatórios de teste** do
-> enunciado cobertos. Este
+> de desfechos aceitos, nunca um único ramo específico — suíte completa
+> rodada 8× seguidas sem falha depois da correção. **Os 10 dos 10
+> cenários obrigatórios de teste** do enunciado cobertos. **Gate Fase 3
+> (concorrência) fechado**: as duas
+> invariantes de `Job.filledCount`/`vacancies` validadas dentro da mesma
+> transação, `CHECK` de banco confirmado sobrevivendo a migrations
+> posteriores, trigger de `updatedAt` pra qualquer SQL bruto (com um
+> achado real de fuso horário corrigido — `CURRENT_TIMESTAMP` puro grava
+> hora local, não UTC, numa coluna sem fuso), índice único
+> case-insensitive de `User.email`, e pool de conexão do `pg` com timeout
+> explícito. **151 testes automatizados verdes** (9 unitários + 142 e2e).
+> Este
 > README é atualizado a cada fase concluída — documento histórico da
 > avaliação, não tarefa de última hora.
 
@@ -286,12 +294,13 @@ npm run test:e2e
 **Correção de honestidade (achado Qwen rodada 4, C3):** uma versão anterior
 deste README dizia "comandos existem e funcionam, mas sem specs de negócio"
 — isso era falso: `test:e2e` estava vermelho (o `ApiKeyGuard` já era global
-e o teste não enviava a chave). Hoje: **148 testes automatizados, todos
-verdes** (139 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
+e o teste não enviava a chave). Hoje: **151 testes automatizados, todos
+verdes** (142 e2e em `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
 `test/candidate-profile.e2e-spec.ts` + `test/applications.e2e-spec.ts` +
 `test/interviews.e2e-spec.ts` + `test/documents.e2e-spec.ts` +
-`test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts`, 9 unitários em
+`test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts` +
+`test/gate-fase3.e2e-spec.ts`, 9 unitários em
 `src/app.controller.spec.ts` + `src/common/cep/cep.service.spec.ts` +
 `src/roles/roles.service.spec.ts` + `src/common/interceptors/logging.interceptor.spec.ts`),
 cobrindo os cenários obrigatórios de
@@ -327,6 +336,19 @@ concorrente sem transação (corrigidas com o mesmo `Serializable` de
 `vitest.config.e2e.ts` passou a rodar arquivos e2e em sequência
 (`fileParallelism: false`) — necessário pra testar agregados globais
 (contagem de admins ativos) sem risco de interferência entre arquivos.
+
+**Gate Fase 3 (concorrência), fechado:** `test/gate-fase3.e2e-spec.ts`
+cobre as proteções de banco que só fazem sentido testar contra SQL bruto,
+não pela API — índice único case-insensitive de `User.email` rejeitando
+duplicata via `INSERT` cru, trigger de `updatedAt` disparando mesmo num
+`UPDATE` que não o menciona, e o `CHECK (filledCount <= vacancies)`
+rejeitando uma escrita via Prisma Client com SQLSTATE `23514`
+identificável. Achado real no processo (não hipotético): a primeira
+versão do trigger usava `CURRENT_TIMESTAMP` puro, que o Postgres converte
+pelo TimeZone da SESSÃO antes de gravar numa coluna sem fuso — ficava ~3h
+dessincronizado do que o Prisma Client escreve (sempre UTC). Pego pelo
+teste, não por inspeção de código; corrigido com `AT TIME ZONE 'UTC'`
+explícito.
 
 ## 5. Endpoints
 

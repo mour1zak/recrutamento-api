@@ -13,7 +13,6 @@ import Joi from 'joi';
 // que leia o repositório público forja um JWT válido com o segredo
 // documentado e autentica como qualquer usuário, inclusive ADMIN.
 const PLACEHOLDER_JWT_SECRET = 'troque-por-um-valor-aleatorio-de-32-bytes-em-hex';
-const PLACEHOLDER_JWT_REFRESH_SECRET = 'troque-por-outro-valor-aleatorio-de-32-bytes-em-hex';
 const PLACEHOLDER_API_KEY = 'troque-por-um-valor-aleatorio';
 
 // Valores do .env.test — versionado de propósito (segredos dedicados a um
@@ -40,8 +39,8 @@ export const envValidationSchema = Joi.object({
     .min(32)
     .when('NODE_ENV', {
       is: 'test',
-      then: Joi.string().invalid(PLACEHOLDER_JWT_SECRET, PLACEHOLDER_JWT_REFRESH_SECRET),
-      otherwise: Joi.string().invalid(PLACEHOLDER_JWT_SECRET, PLACEHOLDER_JWT_REFRESH_SECRET, TEST_ENV_JWT_SECRET),
+      then: Joi.string().invalid(PLACEHOLDER_JWT_SECRET),
+      otherwise: Joi.string().invalid(PLACEHOLDER_JWT_SECRET, TEST_ENV_JWT_SECRET),
     })
     .required()
     .messages({

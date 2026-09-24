@@ -252,9 +252,13 @@ Edite `DATABASE_URL` com o usuário/senha criados acima, e gere valores
 próprios para os segredos (nunca reaproveite os do `.env.example`):
 
 ```bash
-openssl rand -hex 32   # para JWT_SECRET e JWT_REFRESH_SECRET
+openssl rand -hex 32   # para JWT_SECRET
 openssl rand -hex 24   # para API_KEY
 ```
+
+(O refresh token é opaco — aleatório + hash, não um JWT assinado — não
+existe uma segunda chave de assinatura pra ele; só `JWT_SECRET` é usado
+pra assinar o access token.)
 
 Para testes automatizados, crie também um `.env.test` apontando para
 `recrutamento_test` (mesmo formato do `.env`).
@@ -264,10 +268,26 @@ Para testes automatizados, crie também um `.env.test` apontando para
 ```bash
 npm install
 npx prisma migrate dev
+npx prisma generate
 ```
 
-Isso aplica as migrations e gera o Prisma Client em `src/generated/prisma`
-(pasta gerada, fora do Git — recriada por este comando).
+**O `npx prisma generate` no final não é opcional, mesmo que
+`npx prisma migrate dev` já tenha rodado.** Achado ao testar um clone
+limpo do zero: nesta versão do Prisma (7.10.0, modo driver adapter),
+`migrate dev` aplica as migrations mas **não** gera o Prisma Client
+automaticamente — sem o `generate` explícito, `src/generated/prisma`
+não existe, e o próximo passo (`npm run start:dev`) quebra na hora com
+`ERR_MODULE_NOT_FOUND`. (`npm run build` e `npm run test`/`test:e2e` têm
+esse comando embutido como `prebuild`/`pretest:e2e` e funcionariam sem
+este passo manual — só `start:dev` não tem esse gancho.)
+
+Depois, semeie o banco de **desenvolvimento** (RBAC + um usuário de cada
+papel — sem isso, as credenciais de teste citadas no §4.8 não existem
+ainda e o login no Swagger dá `401`):
+
+```bash
+npx prisma db seed
+```
 
 ### 4.5 Rodando em desenvolvimento
 

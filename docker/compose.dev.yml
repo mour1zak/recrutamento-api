@@ -8,6 +8,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      # Porta 5433 (não 5432) de propósito: quem já tem um Postgres nativo
+      # rodando localmente (o caminho padrão do §4.2 do README) usa 5432 —
+      # os dois convivem sem conflito. Só é preciso pra quem escolhe usar
+      # ESTE container como banco pro `npm run start:dev` nativo (alternativa
+      # documentada no README pra quem não tem Postgres instalado); os
+      # serviços `migrate`/`api` abaixo continuam falando com `postgres:5432`
+      # pela rede interna do Docker, nunca por esta porta do host.
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:

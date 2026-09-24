@@ -66,7 +66,7 @@ deixamos isso implícito no código._
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟢 `Job`, `Application` (`PENDING→...→HIRED`/`REJECTED`/`WITHDRAWN`, com histórico em `ApplicationStatusHistory`) e `Interview` (`SCHEDULED→COMPLETED/CANCELED/NO_SHOW/RESCHEDULED`, reagendamento cria novo registro) implementados e testados |
 | Upload de currículo/documento | 🟢 `POST /documents` (multipart, MIME whitelist + limite de 5MB), `GET /documents/:id` com escopo condicional (dono, ou recrutador com candidatura `UNDER_REVIEW`+) |
 | Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado` — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta). Também exposto como consulta independente em `GET /cep/:cep` (§2.3) pro frontend autopreencher o formulário antes de submeter |
-| Interceptor coerente | 🟢 `LoggingInterceptor` (`src/common/interceptors/`) global via `APP_INTERCEPTOR` — loga método/rota/status/duração/id do usuário de toda requisição que passa pelos guards, sem tocar no corpo (nunca vaza senha/token). Rejeições de guard (401/403) e rota inexistente (404) não passam por interceptor nenhum no Nest — logadas separadamente pelo `GlobalExceptionFilter` |
+| Interceptor coerente | 🟢 `LoggingInterceptor` (`src/common/interceptors/`) global via `APP_INTERCEPTOR` — loga método/rota/status/duração/id do usuário de toda requisição que passa pelos guards, em JSON estruturado (`{"event":"http_request",...}`, fácil de indexar no Grafana/Loki), sem tocar no corpo (nunca vaza senha/token). Rejeições de guard (401/403) e rota inexistente (404) não passam por interceptor nenhum no Nest — logadas separadamente pelo `GlobalExceptionFilter`, em `WARN` (reservado a esse tráfego de segurança, nunca erro de negócio comum), sem duplicar a linha quando a requisição já foi logada pelo interceptor |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
 | Build de produção sem erros | 🟢 Concluído (`npm run build` verificado) |
@@ -260,8 +260,21 @@ openssl rand -hex 24   # para API_KEY
 existe uma segunda chave de assinatura pra ele; só `JWT_SECRET` é usado
 pra assinar o access token.)
 
-Para testes automatizados, crie também um `.env.test` apontando para
-`recrutamento_test` (mesmo formato do `.env`).
+Para testes automatizados, o `.env.test` **já vem no repositório**
+(versionado de propósito, com segredos dedicados só a um banco de teste
+descartável — não precisa criar nem configurar nada, funciona em clone
+novo). Ele aponta pro banco fixo `recrutamento_test`.
+
+**Ressalva de design, registrada por honestidade:** por ser um nome fixo
+e versionado, dois clones deste repositório rodando testes ao mesmo
+tempo NO MESMO Postgres colidiriam (um reseta o banco do outro no meio
+da suíte do outro). Não é um problema pro uso real deste projeto (uma
+pessoa, um clone, testes rodados em sequência — validado de ponta a
+ponta clonando do zero antes desta entrega), mas se algum dia isso rodar
+em CI paralelo ou for compartilhado por um time no mesmo servidor, edite
+o `DATABASE_URL` do seu `.env.test` local pra um nome de banco próprio
+(a mudança fica só na sua máquina — o arquivo versionado continua
+servindo o caso comum sem configuração).
 
 ### 4.4 Instalação e migrations
 

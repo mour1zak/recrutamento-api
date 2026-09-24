@@ -42,5 +42,9 @@ test-results/
 .DS_Store
 Thumbs.db
 
+# Ferramenta de IA usada no desenvolvimento (config local de preview do
+# Claude Code) — sem uso pra quem clona o projeto, não deve ser versionada.
+.claude/
+
 # Docker (dados de volumes, nunca a config em docker/*.yml)
 *.pid

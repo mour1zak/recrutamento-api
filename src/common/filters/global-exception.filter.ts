@@ -3,6 +3,7 @@ import { BaseExceptionFilter } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { Prisma } from '../../generated/prisma/client.js';
 import { STATUS_TEXT } from '../exceptions/error-body.util.js';
+import { HTTP_LOG_WRITTEN } from '../interceptors/logging.interceptor.js';
 
 // Nome real da constraint (ver migration.sql) -> rótulo amigável. Nunca
 // devolver o nome cru do índice pro cliente — isso divulga estrutura
@@ -106,15 +107,16 @@ function isTransactionWriteConflict(error: unknown): boolean {
  */
 @Catch()
 export class GlobalExceptionFilter extends BaseExceptionFilter {
-  // Achado Qwen rodada 14 (R1, "antes da Fase 5"): guards
-  // (ApiKeyGuard/JwtAuthGuard/PermissionsGuard) rodam ANTES de qualquer
-  // interceptor no pipeline do Nest — uma rejeição deles (401/403), ou
-  // uma rota inexistente (404 do router), nunca passa pelo
-  // `LoggingInterceptor`, então ficava sem NENHUMA linha de log, mesmo a
-  // documentação afirmando "loga toda requisição". É exatamente o
+  // Achado (R1): guards (ApiKeyGuard/JwtAuthGuard/PermissionsGuard) rodam
+  // ANTES de qualquer interceptor no pipeline do Nest — uma rejeição
+  // deles (401/403), ou uma rota inexistente (404 do router), nunca passa
+  // pelo `LoggingInterceptor`, então ficava sem NENHUMA linha de log,
+  // mesmo a documentação afirmando "loga toda requisição". É exatamente o
   // tráfego mais relevante pra um log de segurança (brute-force,
   // sondagem de 403, varredura de rotas). Este filtro é o único ponto
-  // que enxerga essas exceções antes de qualquer interceptor — loga aqui.
+  // que enxerga essas exceções antes de qualquer interceptor — loga aqui,
+  // em `WARN` (reservado pra rejeição de guard/rota, nunca erro de
+  // negócio comum — ver `logRejection` abaixo).
   private readonly logger = new Logger('HTTP');
 
   catch(exception: unknown, host: ArgumentsHost) {
@@ -163,21 +165,30 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     }
 
     // Qualquer outra coisa (HttpException normais lançadas pelos nossos
-    // Services — já logadas pelo LoggingInterceptor, pois passam pela
-    // execução do handler —, `ForbiddenException` do PermissionsGuard,
-    // rota inexistente, ou erro realmente desconhecido) segue o
-    // comportamento padrão do Nest. Logamos aqui especificamente pro caso
-    // de guard/rota que o interceptor nunca vê (ver comentário do
-    // `logger` acima) — duplicar o log de um erro de Service já logado
-    // pelo interceptor é aceitável (mesma linha, mesma informação).
+    // Services, `ForbiddenException` do PermissionsGuard, rota
+    // inexistente, ou erro realmente desconhecido) segue o comportamento
+    // padrão do Nest. `logRejection` só escreve linha se o
+    // `LoggingInterceptor` ainda não tiver logado esta requisição — o que
+    // só acontece pra exceção de guard (nunca passa pelo interceptor) ou
+    // rota inexistente (nunca chega a um handler).
     const fallbackStatus = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     this.logRejection(host, fallbackStatus);
     super.catch(exception, host);
   }
 
   private logRejection(host: ArgumentsHost, status: number): void {
-    const request = host.switchToHttp().getRequest<Request>();
-    this.logger.warn(`${request.method} ${request.originalUrl} ${status}`);
+    const request = host.switchToHttp().getRequest<Request & { [HTTP_LOG_WRITTEN]?: boolean }>();
+    // Achado da auditoria final: sem esta checagem, todo erro de negócio
+    // lançado por um Service (que PASSA pelo `LoggingInterceptor`) gerava
+    // DUAS linhas pra mesma requisição — uma em `LOG` aqui, outra em
+    // `WARN` no filtro, mesma informação, log duplicado real (não só
+    // hipotético — medido: `GET /companies/999999` gerava as duas linhas
+    // toda vez). Agora só rejeição de guard/rota (que nunca chega ao
+    // interceptor) escreve aqui.
+    if (request[HTTP_LOG_WRITTEN]) {
+      return;
+    }
+    this.logger.warn(JSON.stringify({ event: 'http_request', method: request.method, route: request.originalUrl, status }));
   }
 
   private respond(host: ArgumentsHost, status: number, message: string, reason?: string) {

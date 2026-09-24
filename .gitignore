@@ -46,5 +46,12 @@ Thumbs.db
 # Claude Code) — sem uso pra quem clona o projeto, não deve ser versionada.
 .claude/
 
+# Registro interno do processo de desenvolvimento (rodadas de auditoria,
+# pacotes enviados/recebidos das ferramentas de revisão, notas pro
+# NotebookLM). Tem valor só pra quem já está no processo — pra quem clona
+# o repo pra avaliar o produto, é ruído (e expõe detalhe de ferramental
+# que não é da entrega). Fica só local, nunca versionado.
+docs/fases/
+
 # Docker (dados de volumes, nunca a config em docker/*.yml)
 *.pid

@@ -15,8 +15,13 @@ export class LoginDto {
   // Achado CRÍTICO Qwen rodada 15: `example` anterior era o valor real de
   // `SEED_USER_PASSWORD` (fallback em `prisma/seed.ts`) — a mesma lição
   // do `JWT_SECRET` nunca logado se aplica a qualquer artefato publicado
-  // pela aplicação, não só a logs.
-  @ApiProperty({ description: 'Senha da conta.', example: 'SenhaForte@123' })
+  // pela aplicação, não só a logs. Corrigido pra um valor claramente
+  // falso, mas achado da revisão final: mesmo um valor falso com CARA de
+  // senha real (`SenhaForte@123`) ainda sugere um padrão de senha válido
+  // pra quem só olha o Swagger. Mascarado — não há informação estrutural
+  // útil em documentar "o formato de uma senha", diferente de campos como
+  // CEP/CNPJ onde o exemplo mostra a máscara esperada.
+  @ApiProperty({ description: 'Senha da conta.', example: '********' })
   @IsString()
   @MinLength(1)
   @MaxLength(256)

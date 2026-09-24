@@ -17,7 +17,10 @@ export class RegisterDto {
   // limite do bcrypt: a senha é pré-hasheada com SHA-256 antes do bcrypt
   // (src/common/utils/password.util.ts), então não existe mais truncamento
   // silencioso — não precisamos "acertar o número mágico" do bcrypt aqui.
-  @ApiProperty({ description: 'Senha — mínimo 8 caracteres. Sempre cria a conta como papel CANDIDATE.', example: 'SenhaForte@123', minLength: 8, maxLength: 256 })
+  // Achado da revisão final: `example` mascarado, não um valor com cara
+  // de senha real — mesmo falso, sugeria um padrão. Sem perda de
+  // informação: os 8 asteriscos já ilustram o `minLength`.
+  @ApiProperty({ description: 'Senha — mínimo 8 caracteres. Sempre cria a conta como papel CANDIDATE.', example: '********', minLength: 8, maxLength: 256 })
   @IsString()
   @MinLength(8)
   @MaxLength(256)

@@ -13,12 +13,12 @@ src/generated/
 .env
 .env.*
 !.env.example
-# Exceção deliberada (achado Qwen rodada 4, C3): .env.test só tem
-# credenciais de um banco de teste local descartável (recrutamento_test),
-# nunca dados reais — versionado para que `npm run test:e2e` funcione num
-# clone novo sem configuração manual. Nunca reaproveitar estes valores em
-# dev/produção.
-!.env.test
+!.env.test.example
+# Reversão de uma decisão anterior (achado da auditoria final): `.env.test`
+# chegou a ser versionado com credenciais reais (inclusive a MESMA senha
+# do Postgres local usada em `.env` de dev) — nunca deveria ter sido
+# commitado, mesmo sendo "só teste". Agora segue a mesma regra do `.env`
+# de dev: nunca versionado, só o `.env.test.example` com placeholder.
 
 # Uploads enviados por usuários em ambiente local (não é código-fonte)
 uploads/

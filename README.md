@@ -42,10 +42,12 @@
 > achado real de fuso horário corrigido — `CURRENT_TIMESTAMP` puro grava
 > hora local, não UTC, numa coluna sem fuso), índice único
 > case-insensitive de `User.email`, e pool de conexão do `pg` com timeout
-> explícito. **151 testes automatizados verdes** (9 unitários + 142 e2e).
+> explícito. **158 testes automatizados verdes** (9 unitários + 149 e2e).
 > **Bônus concluídos**: Docker (multi-stage, Postgres, migrations
 > automáticas), Observabilidade (Loki + Promtail + Grafana), Seed, e
-> Swagger (`/docs`, 41 endpoints documentados em português, ver §2.2). Este
+> Swagger (`/docs`, público por decisão de produto — Rodada 15 do Qwen,
+> ver §2.2 —, 42 endpoints documentados em português, incluindo
+> `GET /cep/:cep` além do mapa original de 41). Este
 > README é atualizado a cada fase concluída — documento histórico da
 > avaliação, não tarefa de última hora.
 
@@ -77,7 +79,7 @@ deixamos isso implícito no código._
 | Consultas por relacionamento | 🟢 `GET /jobs*` traz `company`; `CandidateProfile`/`Document` atravessam `Application → Job → Company`; `Interview` atravessa `Application → Job` |
 | Fluxo de estados do domínio (Job, Application, Interview) | 🟢 `Job` (rodada 8/9), `Application` (`PENDING→...→HIRED`/`REJECTED`/`WITHDRAWN`, com histórico em `ApplicationStatusHistory`) e `Interview` (`SCHEDULED→COMPLETED/CANCELED/NO_SHOW/RESCHEDULED`, reagendamento cria novo registro) implementados e testados |
 | Upload de currículo/documento | 🟢 `POST /documents` (multipart, MIME whitelist + limite de 5MB), `GET /documents/:id` com escopo condicional (dono, ou recrutador com candidatura `UNDER_REVIEW`+) |
-| Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado desde a Rodada 11: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado`, achado Qwen N1 — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta) |
+| Integração externa via `HttpService` (CEP/localização) | 🟢 Implementado em `Company` e `CandidateProfile` (`src/common/cep/cep.service.ts`) — contrato discriminado desde a Rodada 11: CEP válido enriquece endereço; CEP que o provedor confirma não existir **rejeita** a operação (`400 cep_nao_encontrado`, achado Qwen N1 — antes ficava indistinguível de falha de rede); só falha de REDE/timeout não bloqueia (endereço `null` na criação, preservado na atualização, com `addressWarning` na resposta). Também exposto como consulta independente em `GET /cep/:cep` (§2.3) pro frontend autopreencher o formulário antes de submeter |
 | Interceptor coerente | 🟢 `LoggingInterceptor` (`src/common/interceptors/`) global via `APP_INTERCEPTOR` — loga método/rota/status/duração/id do usuário de toda requisição que passa pelos guards, sem tocar no corpo (nunca vaza senha/token). Rejeições de guard (401/403) e rota inexistente (404) não passam por interceptor nenhum no Nest — logadas separadamente pelo `GlobalExceptionFilter` (achado Qwen rodada 14) |
 | Helmet + Compression | 🟢 Concluído (`src/main.ts`) |
 | Tratamento de 400/401/403/404/409 | 🟢 Todos os 5 demonstrados por teste automatizado: 400 (DTO inválido), 401 (API key/JWT ausente ou inválido), 403 (permission key ausente), 404 (recurso inexistente), 409 (email duplicado, inclusive sob concorrência) |
@@ -93,12 +95,24 @@ deixamos isso implícito no código._
 | Seed | 🟢 `prisma/seed.ts` — catálogo de permissões, papéis, um usuário de cada papel |
 | **Docker** | 🟢 **Concluído e verificado por execução dos dois lados** — `Dockerfile` multi-stage (deps/build/runtime, usuário não-root), `docker/compose.dev.yml` (API + Postgres + migrations automáticas via `prisma migrate deploy`), volumes persistentes (Postgres + uploads, com permissão corrigida pro usuário `node`), porta da API mapeada em `3001` (não conflita com o dev local em `3000`) |
 | **Observabilidade** | 🟢 **Concluída** — `docker/compose.obs.yml` com Loki + Promtail + Grafana, dashboard provisionado automaticamente filtrando os logs do container da API (`container="recrutamento-api"`), confirmado recebendo os logs do `LoggingInterceptor`/`GlobalExceptionFilter` em tempo real |
-| **Swagger** | 🟢 **Concluído, auditado pelo Qwen (Rodada 15) e corrigido** — `@nestjs/swagger` em `/docs`/`/docs-json`, **deliberadamente públicos** (decisão final do produto, revertendo a recomendação do Qwen de exigir `x-api-key`: chegamos a implementar isso com fallback de Basic Auth pro navegador, mas a UX do popup nativo pedindo "usuário/senha" pra uma chave sem conceito de usuário foi considerada pior que o risco residual — ver `docs/fases/TRIAGEM-REVISOES-RODADA15.md`). A correção que de fato importava permanece: o `example` de `LoginDto` publicava a credencial REAL do ADMIN do seed — corrigido, com teste e2e de regressão em `test/docs.e2e-spec.ts` garantindo que nenhuma credencial real do seed apareça no spec publicado. Todos os 41 endpoints documentados em 10 tags em português, `@ApiOperation`/`@ApiResponse` cobrindo todo código HTTP que cada rota realmente retorna (nunca um `500` documentado — confirmado pelo Qwen em 175 respostas), schemas de resposta com a distinção payload completo × reduzido em `CandidateProfile`/`Application`/`Job`, todas as propriedades de DTO com `@ApiProperty`/`@ApiPropertyOptional` e descrição em português, upload multipart com schema de arquivo, e os dois esquemas de segurança (`x-api-key`, `Bearer JWT`) funcionais no botão "Authorize" |
+| **Swagger** | 🟢 **Concluído, auditado pelo Qwen (Rodada 15) e corrigido** — `@nestjs/swagger` em `/docs`/`/docs-json`, **deliberadamente públicos** (decisão final do produto, revertendo a recomendação do Qwen de exigir `x-api-key`: chegamos a implementar isso com fallback de Basic Auth pro navegador, mas a UX do popup nativo pedindo "usuário/senha" pra uma chave sem conceito de usuário foi considerada pior que o risco residual — ver `docs/fases/TRIAGEM-REVISOES-RODADA15.md`). A correção que de fato importava permanece: o `example` de `LoginDto` publicava a credencial REAL do ADMIN do seed — corrigido, com teste e2e de regressão em `test/docs.e2e-spec.ts` garantindo que nenhuma credencial real do seed apareça no spec publicado. Todos os 42 endpoints documentados em 11 tags em português (os 41 do mapa original + `GET /cep/:cep`, adicionado depois — ver §2.3), `@ApiOperation`/`@ApiResponse` cobrindo todo código HTTP que cada rota realmente retorna (nunca um `500` documentado — confirmado pelo Qwen em 175 respostas na Rodada 15), schemas de resposta com a distinção payload completo × reduzido em `CandidateProfile`/`Application`/`Job`, todas as propriedades de DTO com `@ApiProperty`/`@ApiPropertyOptional` e descrição em português, upload multipart com schema de arquivo, e os dois esquemas de segurança (`x-api-key`, `Bearer JWT`) funcionais no botão "Authorize" |
 
 Docker/observabilidade implementados numa VM Debian em paralelo (outra sessão do Claude Code, guiada pelo usuário), revisados aqui por leitura + verificação empírica cruzada (ex.: o achado de `UPLOAD_DIR`/`MAX_UPLOAD_SIZE_MB` sem efeito, corrigido neste lado; o achado de permissão do volume de uploads, corrigido do lado deles).
 
 ### 2.3 Além do pedido (diferenciais desta entrega)
 
+- **`GET /cep/:cep`** — consulta de CEP independente, pública (`@Public()`
+  + API key, sem JWT — mesma classe de utilidade que `GET /jobs`
+  vitrine), reaproveitando o `CepService` já existente. Permite o
+  frontend implementar "digite o CEP, autopreenche rua/cidade/estado"
+  ANTES de submeter o formulário de `Company`/`CandidateProfile`, que já
+  resolviam CEP internamente mas só como parte do envio completo. Mesmo
+  contrato discriminado do Service, mapeado pra HTTP: `ok` → `200`;
+  `invalid` → `400 cep_nao_encontrado` (mesmo `reason` de Companies/
+  CandidateProfile); `unavailable` → `502` (falha do provedor externo,
+  não de quem perguntou — status HTTP diferente de propósito, pra não
+  confundir com CEP realmente inexistente). Testado contra o ViaCEP real,
+  sem mock, mesmo padrão do resto do projeto.
 - Histórico de status de candidatura (`ApplicationStatusHistory`) como
   entidade auditável, não só um campo de status mutável.
 - Observabilidade com Loki/Promtail/Grafana — implementada e verificada

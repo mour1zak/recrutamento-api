@@ -8,6 +8,7 @@ export const STATUS_TEXT: Record<number, string> = {
   [HttpStatus.FORBIDDEN]: 'Forbidden',
   [HttpStatus.NOT_FOUND]: 'Not Found',
   [HttpStatus.CONFLICT]: 'Conflict',
+  [HttpStatus.BAD_GATEWAY]: 'Bad Gateway',
   [HttpStatus.SERVICE_UNAVAILABLE]: 'Service Unavailable',
   [HttpStatus.INTERNAL_SERVER_ERROR]: 'Internal Server Error',
 };

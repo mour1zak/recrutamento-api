@@ -1,6 +1,6 @@
 # Guia de Testes no Swagger — Roteiro para Apresentação
 
-Documento de apoio para testar manualmente os 41 endpoints da API direto
+Documento de apoio para testar manualmente os 43 endpoints da API direto
 no `/docs` (Swagger UI), papel por papel, e para servir de roteiro na
 apresentação: o que fazer, o que esperar, e **por quê** aquilo é a regra
 de negócio certa — para demonstrar domínio da arquitetura, não só "o
@@ -172,13 +172,15 @@ Catálogo completo em [`src/common/constants/permissions.constants.ts`](../../sr
 
 ## 5. Empresas
 
-| Rota | ADMIN | RECRUITER | CANDIDATE |
-|---|---|---|---|
-| `POST /companies` | 201 | 403 (`company:create` não é dele) | 403 |
-| `GET /companies/:id` | 200 | 200 (tem `company:read`) | 403 |
-| `PATCH /companies/:id` | 200 | 403 | 403 |
-| `PATCH /companies/:id/deactivate` | 200/409 | 403 | 403 |
-| `PATCH /companies/:id/reactivate` | 200/409 | 403 | 403 |
+| Rota | ADMIN | RECRUITER | CANDIDATE | Público (sem JWT) |
+|---|---|---|---|---|
+| `POST /companies` | 201 | 403 (`company:create` não é dele) | 403 | — |
+| `GET /companies/:id` | 200 | 200 (tem `company:read`, de QUALQUER empresa) | 403 | — |
+| `PATCH /companies/:id` | 200 | 403 | 403 | — |
+| `PATCH /companies/:id/deactivate` | 200/409 | 403 | 403 | — |
+| `PATCH /companies/:id/reactivate` | 200/409 | 403 | 403 | — |
+| `GET /companies/:id/stats` | 200 (qualquer empresa) | 200 só da PRÓPRIA / 404 de outra | 403 | — |
+| `GET /cep/:cep` | 200 | 200 | 200 | 200 (só API key) |
 
 **Roteiro sugerido:**
 1. Como ADMIN, `POST /companies` com um CEP válido (ex.: `01310-100`) →
@@ -195,6 +197,21 @@ Catálogo completo em [`src/common/constants/permissions.constants.ts`](../../sr
 5. Troque pro RECRUITER e tente `GET /companies/:id` da empresa DELE
    mesmo (a "Empresa Seed") → **200** (ele tem `company:read`, só não
    pode criar/editar).
+6. **`GET /cep/:cep` isolado** (item além do pedido, §2.3 do README):
+   `GET /cep/01310-100` só com API key (sem JWT) → **200**
+   `{street, city, state}` — mostra que o frontend pode implementar
+   "digite o CEP, autopreenche o formulário" ANTES de submeter qualquer
+   coisa. Repita com `00000-000` → **400** `cep_nao_encontrado`; e com um
+   formato errado (`123`) → **400** `cep_formato_invalido`.
+7. **`GET /companies/:id/stats`** (bônus "indicadores do domínio"): como
+   RECRUITER da "Empresa Seed", chame a rota → **200** com `jobs.byStatus`
+   e `applications.byStatus`. Se ainda não houver candidatura nenhuma,
+   `conversionRate`/`avgTimeToHireDays` vêm `null` (não `0` — destaque
+   isso, é a diferença entre "não sabemos" e "a taxa é zero"). Tente a
+   mesma rota como RECRUITER pra uma empresa que NÃO é a dele → **404**
+   (mesmo padrão anti-enumeração do resto do projeto, mesmo tendo
+   `company:read`). Como ADMIN, a mesma rota funciona pra qualquer
+   empresa.
 
 ---
 
@@ -230,6 +247,10 @@ Catálogo completo em [`src/common/constants/permissions.constants.ts`](../../sr
 7. Crie um segundo RECRUITER de outra empresa (ou simule) e tente
    `PATCH /jobs/:id` numa vaga que não é da empresa dele → **404**
    (mesmo padrão, mesmo ele tendo `job:update`).
+8. **Ordenação configurável** (bônus): `GET /jobs?sortOrder=asc` inverte
+   a ordem padrão (`createdAt desc`) sem mudar o campo — a vaga mais
+   ANTIGA aparece primeiro. Mesmo parâmetro funciona em `/jobs/mine`,
+   `/applications/me`, `/jobs/:jobId/applications` e `/users`.
 
 ---
 

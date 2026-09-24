@@ -209,7 +209,7 @@ export class UsersService {
     const limit = query.limit ?? 20;
     const [total, data] = await Promise.all([
       this.prisma.user.count({ where }),
-      this.prisma.user.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { id: 'asc' }, select: USER_SUMMARY_SELECT }),
+      this.prisma.user.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { id: query.sortOrder ?? 'asc' }, select: USER_SUMMARY_SELECT }),
     ]);
     return { data, page, limit, total };
   }

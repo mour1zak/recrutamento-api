@@ -2,6 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CEP_UNAVAILABLE_WARNING, CepService } from '../common/cep/cep.service.js';
 import { errorBody } from '../common/exceptions/error-body.util.js';
+import { isAdmin } from '../common/utils/role.util.js';
+import { ApplicationStatus, JobStatus } from '../generated/prisma/client.js';
+import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 import { CreateCompanyDto } from './dto/create-company.dto.js';
 import { UpdateCompanyDto } from './dto/update-company.dto.js';
 
@@ -125,5 +128,56 @@ export class CompaniesService {
     }
 
     return this.prisma.company.update({ where: { id }, data: { isActive: true } });
+  }
+
+  // Bônus "indicadores do domínio" (enunciado §Bônus) — diferente da
+  // observabilidade de infraestrutura (Loki/Grafana, logs HTTP), isto é
+  // métrica de NEGÓCIO: quantas vagas em cada status, o funil de
+  // candidaturas, taxa de conversão e tempo médio até contratação.
+  // RECRUITER só vê a própria empresa (mesmo padrão anti-enumeração do
+  // resto do projeto: empresa de terceiro dá `404`, nunca `403`) — dados
+  // agregados de contratação são informação competitiva, mais sensível
+  // que o nome/endereço que `GET /companies/:id` já expõe sem escopo.
+  async getStats(companyId: number, currentUser: AuthenticatedUser) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company || !company.isActive || (!isAdmin(currentUser) && company.id !== currentUser.companyId)) {
+      throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
+    }
+
+    const [jobsByStatusRaw, applicationsByStatusRaw, hireHistory] = await Promise.all([
+      this.prisma.job.groupBy({ by: ['status'], where: { companyId }, _count: { _all: true } }),
+      this.prisma.application.groupBy({ by: ['status'], where: { job: { companyId } }, _count: { _all: true } }),
+      this.prisma.applicationStatusHistory.findMany({
+        where: { toStatus: ApplicationStatus.HIRED, application: { job: { companyId } } },
+        select: { createdAt: true, application: { select: { createdAt: true } } },
+      }),
+    ]);
+
+    const jobsByStatus = Object.fromEntries(Object.values(JobStatus).map((status) => [status, 0])) as Record<JobStatus, number>;
+    for (const row of jobsByStatusRaw) jobsByStatus[row.status] = row._count._all;
+
+    const applicationsByStatus = Object.fromEntries(Object.values(ApplicationStatus).map((status) => [status, 0])) as Record<ApplicationStatus, number>;
+    for (const row of applicationsByStatusRaw) applicationsByStatus[row.status] = row._count._all;
+
+    const totalApplications = Object.values(applicationsByStatus).reduce((sum, n) => sum + n, 0);
+    const hiredCount = applicationsByStatus[ApplicationStatus.HIRED];
+    const conversionRate = totalApplications > 0 ? Number((hiredCount / totalApplications).toFixed(4)) : null;
+
+    const avgTimeToHireDays =
+      hireHistory.length > 0
+        ? Number(
+            (
+              hireHistory.reduce((sum, h) => sum + (h.createdAt.getTime() - h.application.createdAt.getTime()), 0) /
+              hireHistory.length /
+              (1000 * 60 * 60 * 24)
+            ).toFixed(2),
+          )
+        : null;
+
+    return {
+      companyId,
+      jobs: { total: Object.values(jobsByStatus).reduce((sum, n) => sum + n, 0), byStatus: jobsByStatus },
+      applications: { total: totalApplications, byStatus: applicationsByStatus, conversionRate, avgTimeToHireDays },
+    };
   }
 }

@@ -150,7 +150,7 @@ export class ApplicationsService {
     const limit = query.limit ?? 20;
     const [total, data] = await Promise.all([
       this.prisma.application.count({ where }),
-      this.prisma.application.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, include: APPLICATION_INCLUDE }),
+      this.prisma.application.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: query.sortOrder ?? 'desc' }, include: APPLICATION_INCLUDE }),
     ]);
     return { data, page, limit, total };
   }
@@ -174,7 +174,7 @@ export class ApplicationsService {
     const limit = query.limit ?? 20;
     const [total, data] = await Promise.all([
       this.prisma.application.count({ where }),
-      this.prisma.application.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, include: APPLICATION_INCLUDE }),
+      this.prisma.application.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: query.sortOrder ?? 'desc' }, include: APPLICATION_INCLUDE }),
     ]);
     return { data, page, limit, total };
   }

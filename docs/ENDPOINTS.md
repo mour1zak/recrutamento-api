@@ -28,7 +28,24 @@ de auth).
 
 ---
 
-## 2. Auth — quem você é
+## 2. CEP — consulta de endereço
+
+### `GET /cep/:cep`
+- **Auth:** só API key (rota pública, sem JWT)
+- **Respostas:** `200 {street, city, state}`; `400` formato inválido (`reason: "cep_formato_invalido"`) ou CEP que o provedor confirma não existir (`reason: "cep_nao_encontrado"`); `502` provedor externo indisponível (`reason: "servico_cep_indisponivel"`, transitório — tente de novo)
+- **Por que existe:** item além do pedido. `Company`/`CandidateProfile`
+  já resolviam CEP internamente, mas só como parte do envio do formulário
+  inteiro — esta rota expõe o mesmo `CepService` isoladamente, pro
+  frontend implementar "digite o CEP, autopreenche rua/cidade/estado"
+  ANTES de submeter. Pública porque não é ação de usuário autenticado, é
+  a mesma informação que o ViaCEP já devolve de graça — mas ainda exige
+  `x-api-key` (nenhuma rota deste projeto é isenta dela). `502` (não
+  `400`) para falha do provedor externo: é erro de infraestrutura de
+  terceiro, não do CEP que o cliente mandou.
+
+---
+
+## 3. Auth — quem você é
 
 ### `POST /auth/register`
 - **Auth:** só API key
@@ -62,7 +79,7 @@ de auth).
 
 ---
 
-## 3. Companies — o tenant do sistema
+## 4. Companies — o tenant do sistema
 
 ### `POST /companies`
 - **Auth:** JWT + `company:create`
@@ -96,13 +113,24 @@ de auth).
 - **Por que existe:** toda ação destrutiva reversível precisa do caminho de
   volta. Idempotente.
 
+### `GET /companies/:id/stats`
+- **Auth:** JWT + `company:read`
+- **Respostas:** `200 {companyId, jobs:{total,byStatus}, applications:{total,byStatus,conversionRate,avgTimeToHireDays}}`; `404` inexistente, inativa, ou (RECRUITER) de outra empresa
+- **Por que existe:** bônus "indicadores do domínio" (métrica de negócio,
+  diferente da observabilidade de infraestrutura em `docs/fases/`).
+  RECRUITER só vê a própria empresa — dados de contratação são
+  informação competitiva, mais sensível que o nome/endereço que
+  `GET /companies/:id` já expõe sem esse escopo. `conversionRate` e
+  `avgTimeToHireDays` vêm `null` (não `0`/`NaN`) quando não há dado
+  suficiente pra calcular.
+
 ---
 
-## 4. Jobs — o produto central
+## 5. Jobs — o produto central
 
 ### `GET /jobs`
 - **Auth:** só API key (**rota pública — a vitrine**)
-- **Query:** `?page&limit&search`
+- **Query:** `?page&limit&search&sortOrder` (`sortOrder=asc|desc`, ordena por `createdAt`; bônus "ordenação")
 - **Respostas:** `200` lista paginada, só vagas `OPEN` de empresas ativas
 - **Por que existe:** o candidato anônimo precisa ver vagas antes de criar
   conta. O `select` da vitrine **não** inclui `createdById` nem
@@ -120,7 +148,7 @@ de auth).
 
 ### `GET /jobs/mine`
 - **Auth:** JWT + `job:read:any`
-- **Query:** `?status&page&limit`
+- **Query:** `?status&page&limit&sortOrder`
 - **Respostas:** `200` vagas da própria empresa em **qualquer status**
 - **Por que existe:** painel do recrutador precisa ver rascunhos, pausadas
   e preenchidas — diferente da vitrine pública. ADMIN vê todas.
@@ -153,7 +181,7 @@ de auth).
 
 ---
 
-## 5. Candidates — perfil e privacidade
+## 6. Candidates — perfil e privacidade
 
 ### `GET /candidates/me`
 - **Auth:** JWT + `candidate-profile:read`
@@ -185,7 +213,7 @@ de auth).
 
 ---
 
-## 6. Applications — o funil de candidatura
+## 7. Applications — o funil de candidatura
 
 ### `POST /jobs/:jobId/applications`
 - **Auth:** JWT + `application:create`
@@ -199,12 +227,13 @@ de auth).
 
 ### `GET /applications/me`
 - **Auth:** JWT + `application:read:own`
-- **Query:** `?status&page&limit`
+- **Query:** `?status&page&limit&sortOrder`
 - **Respostas:** `200` só as do `@CurrentUser()`
 - **Por que existe:** o candidato nunca lista candidaturas de terceiros.
 
 ### `GET /jobs/:jobId/applications`
 - **Auth:** JWT + `application:read:job`
+- **Query:** `?status&page&limit&sortOrder`
 - **Respostas:** `200`; `404` vaga de outra empresa
 - **Por que existe:** visão do recrutador sobre uma vaga. Mesmo erro para
   "não existe" e "não é sua".
@@ -239,7 +268,7 @@ de auth).
 
 ---
 
-## 7. Interviews — agendamento
+## 8. Interviews — agendamento
 
 ### `POST /applications/:applicationId/interviews`
 - **Auth:** JWT + `interview:create`
@@ -269,7 +298,7 @@ de auth).
 
 ---
 
-## 8. Documents — upload com propósito real
+## 9. Documents — upload com propósito real
 
 ### `POST /documents`
 - **Auth:** JWT + `document:upload:own`
@@ -297,11 +326,11 @@ de auth).
 
 ---
 
-## 9. Users e Roles — administração (RBAC Nível B)
+## 10. Users e Roles — administração (RBAC Nível B)
 
 ### `GET /users`
 - **Auth:** JWT + `user:read`
-- **Query:** `?role&companyId&isActive&page&limit`
+- **Query:** `?role&companyId&isActive&page&limit&sortOrder` (ordena por `id`)
 - **Respostas:** `200` lista paginada
 - **Por que existe:** gestão. **Nunca devolve `password`** — regra explícita.
 

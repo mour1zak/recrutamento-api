@@ -216,6 +216,29 @@ describe('Jobs (e2e)', () => {
       expect(res.body.data.some((j: { id: number }) => j.id === jobId)).toBe(true);
     });
 
+    // Bônus "ordenação" (era fixa em `createdAt desc`, não configurável
+    // pelo cliente) — `?sortOrder=asc` inverte a ordem sem mudar o campo.
+    it('GET /jobs?sortOrder=asc inverte a ordem padrão (createdAt desc)', async () => {
+      const older = await prisma.job.create({
+        data: { title: 'Vaga Sort Antiga', description: 'X', vacancies: 1, isRemote: true, companyId: companyAId, createdById: adminUserId, status: 'OPEN' as const, createdAt: new Date('2020-01-01') },
+      });
+      const newer = await prisma.job.create({
+        data: { title: 'Vaga Sort Nova', description: 'X', vacancies: 1, isRemote: true, companyId: companyAId, createdById: adminUserId, status: 'OPEN' as const, createdAt: new Date('2030-01-01') },
+      });
+
+      const desc = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
+      const idxNewerDesc = desc.body.data.findIndex((j: { id: number }) => j.id === newer.id);
+      const idxOlderDesc = desc.body.data.findIndex((j: { id: number }) => j.id === older.id);
+      expect(idxNewerDesc).toBeLessThan(idxOlderDesc);
+
+      const asc = await request(app.getHttpServer()).get('/jobs?limit=100&sortOrder=asc').set('x-api-key', apiKey).expect(200);
+      const idxNewerAsc = asc.body.data.findIndex((j: { id: number }) => j.id === newer.id);
+      const idxOlderAsc = asc.body.data.findIndex((j: { id: number }) => j.id === older.id);
+      expect(idxOlderAsc).toBeLessThan(idxNewerAsc);
+
+      await prisma.job.deleteMany({ where: { id: { in: [older.id, newer.id] } } });
+    });
+
     it('PATCH /jobs/:id/status OPEN -> FILLED com filledCount < vacancies -> 409', () => {
       return request(app.getHttpServer())
         .patch(`/jobs/${jobId}/status`)

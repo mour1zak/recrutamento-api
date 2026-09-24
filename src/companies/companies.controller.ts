@@ -4,7 +4,9 @@ import { CompaniesService } from './companies.service.js';
 import { CreateCompanyDto } from './dto/create-company.dto.js';
 import { UpdateCompanyDto } from './dto/update-company.dto.js';
 import { Permissions } from '../common/decorators/permissions.decorator.js';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
+import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
 // Primeiro módulo de domínio além de Auth/Users — mesma trinca de guards
 // globais (API key → JWT → permission) se aplica sem nada extra aqui.
@@ -80,5 +82,38 @@ export class CompaniesController {
   @Patch(':id/reactivate')
   reactivate(@Param('id', ParseIntPipe) id: number) {
     return this.companiesService.reactivate(id);
+  }
+
+  @ApiOperation({
+    summary: 'Indicadores de negócio da empresa',
+    description:
+      'Bônus "indicadores do domínio": vagas por status, funil de candidaturas por status, taxa de conversão e tempo médio até contratação. RECRUITER só vê a própria empresa (dados agregados de contratação são mais sensíveis que nome/endereço); ADMIN vê qualquer uma.',
+  })
+  @ApiParam({ name: 'id', type: Number })
+  @ApiResponse({
+    status: 200,
+    description: 'Indicadores calculados a partir dos dados reais da empresa.',
+    schema: {
+      properties: {
+        companyId: { type: 'integer' },
+        jobs: { properties: { total: { type: 'integer' }, byStatus: { type: 'object' } } },
+        applications: {
+          properties: {
+            total: { type: 'integer' },
+            byStatus: { type: 'object' },
+            conversionRate: { type: 'number', nullable: true, description: 'HIRED / total de candidaturas, ou null sem candidaturas.' },
+            avgTimeToHireDays: { type: 'number', nullable: true, description: 'Média de dias entre a criação da candidatura e a transição para HIRED, ou null sem nenhuma contratação.' },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
+  @ApiResponse({ status: 403, description: 'Sem a permissão `company:read`.' })
+  @ApiResponse({ status: 404, description: 'Empresa não encontrada, inativa, ou (RECRUITER) de outra empresa.' })
+  @Permissions(PERMISSIONS.COMPANY_READ)
+  @Get(':id/stats')
+  getStats(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthenticatedUser) {
+    return this.companiesService.getStats(id, user);
   }
 }

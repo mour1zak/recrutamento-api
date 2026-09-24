@@ -174,7 +174,7 @@ export class JobsService {
     const limit = query.limit ?? 20;
     const [total, data] = await Promise.all([
       this.prisma.job.count({ where }),
-      this.prisma.job.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, select: PUBLIC_JOB_SELECT }),
+      this.prisma.job.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: query.sortOrder ?? 'desc' }, select: PUBLIC_JOB_SELECT }),
     ]);
     return { data, page, limit, total };
   }
@@ -197,7 +197,7 @@ export class JobsService {
     const limit = query.limit ?? 20;
     const [total, data] = await Promise.all([
       this.prisma.job.count({ where }),
-      this.prisma.job.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: 'desc' }, include: SCOPED_JOB_INCLUDE }),
+      this.prisma.job.findMany({ where, skip: (page - 1) * limit, take: limit, orderBy: { createdAt: query.sortOrder ?? 'desc' }, include: SCOPED_JOB_INCLUDE }),
     ]);
     return { data, page, limit, total };
   }

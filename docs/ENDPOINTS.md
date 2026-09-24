@@ -117,7 +117,7 @@ de auth).
 - **Auth:** JWT + `company:read`
 - **Respostas:** `200 {companyId, jobs:{total,byStatus}, applications:{total,byStatus,conversionRate,avgTimeToHireDays}}`; `404` inexistente, inativa, ou (RECRUITER) de outra empresa
 - **Por que existe:** bônus "indicadores do domínio" (métrica de negócio,
-  diferente da observabilidade de infraestrutura em `docs/fases/`).
+  diferente da observabilidade de infraestrutura via Loki/Grafana).
   RECRUITER só vê a própria empresa — dados de contratação são
   informação competitiva, mais sensível que o nome/endereço que
   `GET /companies/:id` já expõe sem esse escopo. `conversionRate` e

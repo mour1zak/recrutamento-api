@@ -32,10 +32,10 @@
 > código contra execução real, não só leitura, com poder de reprovar uma
 > entrega até os achados serem corrigidos e reverificados sob carga
 > maior). O histórico completo, achado por achado, com o motivo de cada
-> decisão, está em `docs/fases/`. Este README reflete o estado final;
-> as notas técnicas ao longo do documento (formato de erro, transições
-> de estado, contratos de payload) explicam decisões específicas com
-> mais detalhe.
+> decisão, é registro interno de processo e não acompanha esta entrega.
+> Este README reflete o estado final; as notas técnicas ao longo do
+> documento (formato de erro, transições de estado, contratos de
+> payload) explicam decisões específicas com mais detalhe.
 
 ## 1. Objetivo
 
@@ -82,7 +82,7 @@ deixamos isso implícito no código._
 | **Docker** | 🟢 **Concluído e verificado por execução** — `Dockerfile` multi-stage (deps/build/runtime, usuário não-root), `docker/compose.dev.yml` (API + Postgres + migrations automáticas via `prisma migrate deploy`), volumes persistentes (Postgres + uploads, com permissão corrigida pro usuário `node`), porta da API mapeada em `3001` (não conflita com o dev local em `3000`) |
 | **Observabilidade (infraestrutura)** | 🟢 **Concluída** — `docker/compose.obs.yml` com Loki + Promtail + Grafana, dashboard provisionado automaticamente filtrando os logs do container da API (`container="recrutamento-api"`), confirmado recebendo os logs do `LoggingInterceptor`/`GlobalExceptionFilter` em tempo real |
 | **Indicadores do domínio (negócio)** | 🟢 **Concluído** — `GET /companies/:id/stats`: vagas por status, funil de candidaturas por status, taxa de conversão (`HIRED`/total) e tempo médio até contratação (calculado a partir de `ApplicationStatusHistory`, não estimado). RECRUITER só vê a própria empresa (`404` anti-enumeração pra outra); ADMIN vê qualquer uma. Métrica de negócio, distinta da observabilidade de infraestrutura da linha acima |
-| **Swagger** | 🟢 **Concluído e revisado** — `@nestjs/swagger` em `/docs`/`/docs-json`, **deliberadamente públicos** (decisão de produto — ver `docs/fases/TRIAGEM-REVISOES-RODADA15.md`: chegou a ser implementada uma exigência de `x-api-key` com fallback de Basic Auth pro navegador, mas a UX do popup nativo pedindo "usuário/senha" pra uma chave sem conceito de usuário foi considerada pior que o risco residual). Todos os 43 endpoints documentados em 11 tags em português (os 41 do mapa original + `GET /cep/:cep` + `GET /companies/:id/stats`, adicionados depois — ver §2.3), `@ApiOperation`/`@ApiResponse` cobrindo todo código HTTP que cada rota realmente retorna (nunca um `500` documentado), schemas de resposta com a distinção payload completo × reduzido em `CandidateProfile`/`Application`/`Job`, todas as propriedades de DTO com `@ApiProperty`/`@ApiPropertyOptional` e descrição em português, upload multipart com schema de arquivo, e os dois esquemas de segurança (`x-api-key`, `Bearer JWT`) funcionais no botão "Authorize" |
+| **Swagger** | 🟢 **Concluído e revisado** — `@nestjs/swagger` em `/docs`/`/docs-json`, **deliberadamente públicos** (decisão de produto: chegou a ser implementada uma exigência de `x-api-key` com fallback de Basic Auth pro navegador, mas a UX do popup nativo pedindo "usuário/senha" pra uma chave sem conceito de usuário foi considerada pior que o risco residual). Todos os 43 endpoints documentados em 11 tags em português (os 41 do mapa original + `GET /cep/:cep` + `GET /companies/:id/stats`, adicionados depois — ver §2.3), `@ApiOperation`/`@ApiResponse` cobrindo todo código HTTP que cada rota realmente retorna (nunca um `500` documentado), schemas de resposta com a distinção payload completo × reduzido em `CandidateProfile`/`Application`/`Job`, todas as propriedades de DTO com `@ApiProperty`/`@ApiPropertyOptional` e descrição em português, upload multipart com schema de arquivo, e os dois esquemas de segurança (`x-api-key`, `Bearer JWT`) funcionais no botão "Authorize" |
 
 Docker/observabilidade implementados em paralelo numa frente de trabalho
 de infraestrutura, revisados aqui por leitura + verificação empírica
@@ -135,15 +135,15 @@ corrigido na frente de infraestrutura).
   entidade auditável, não só um campo de status mutável.
 - Observabilidade com Loki/Promtail/Grafana — implementada e verificada
   (ver §2.2), dashboard já filtrando os logs da API em tempo real.
-- Documento de decisões técnicas por fase em `docs/fases/`, revisado por
-  duas lentes externas (segurança/arquitetura e negócio) antes de avançar.
+- Decisões técnicas revisadas por duas lentes externas (segurança/
+  arquitetura e negócio) antes de avançar de fase.
 - **API key como camada adicional ao JWT** (recomendação do avaliador, não
   consta no enunciado escrito), aplicada como guard global antes da
-  autenticação — ver `docs/fases/FASE-1-MODELAGEM.md` §5.1.
+  autenticação.
 - **RBAC dinâmico via banco** (`Role`/`Permission`/`RolePermission`) em vez
   de papéis fixos em enum, incluindo endpoint de ADMIN para editar
   permissões de um papel em runtime (Nível B, decisão explícita de assumir
-  o custo de tempo — ver `docs/fases/FASE-1-MODELAGEM.md` §5.1).
+  o custo de tempo).
 - **Validação de ambiente no boot** (`src/config/env.validation.ts`): a
   aplicação recusa subir se `JWT_SECRET`/`API_KEY` forem os valores de
   exemplo do `.env.example` (ou iguais entre si) — fecha um bypass real de
@@ -174,9 +174,12 @@ corrigido na frente de infraestrutura).
 
 ## 3. Como este projeto foi conduzido
 
-Cada fase tem um documento em `docs/fases/` com: a modelagem/decisão
-proposta, o motivo ("porquê", não só "o quê"), e o veredito das revisões
-externas antes de avançar para a próxima fase. Ver `docs/fases/FASE-1-MODELAGEM.md`.
+Cada fase teve um documento próprio com: a modelagem/decisão proposta, o
+motivo ("porquê", não só "o quê"), e o veredito das revisões externas
+antes de avançar para a próxima fase. Esse registro é interno de
+processo e não acompanha esta entrega; as decisões que sobrevivem até o
+produto final estão descritas com o mesmo nível de detalhe ao longo
+deste README.
 
 ### 3.1 Divergências da estrutura originalmente planejada
 
@@ -196,14 +199,14 @@ interna do código.
 | Planejado originalmente | Implementado | Motivo |
 |---|---|---|
 | `src/modules/{auth,users,...}` | `src/{auth,users,companies,jobs}` (sem prefixo `modules/`) | Nenhum — só o jeito como a implementação evoluiu; funcionalmente idêntico, ambos são convenção comum em NestJS |
-| `RolesGuard` (papel fixo) | `PermissionsGuard` (RBAC dinâmico via banco) | **Decisão consciente**, documentada desde `FASE-1-MODELAGEM.md` — permite editar permissões em runtime (Nível B), inspirado em auditoria de projeto anterior |
+| `RolesGuard` (papel fixo) | `PermissionsGuard` (RBAC dinâmico via banco) | **Decisão consciente**, tomada na fase de modelagem — permite editar permissões em runtime (Nível B), inspirado em auditoria de projeto anterior |
 | Jest (`test/jest-e2e.json`) | Vitest (`vitest.config.e2e.ts`) | Escolha de ferramenta feita no scaffolding inicial (Dia 1), nunca revisitada |
 | Zod/ClassValidator para ENV | Joi (via `@nestjs/config`) | Escolha de ferramenta; validada na revisão técnica |
 | `TestContainers` nos testes e2e | PostgreSQL local real (`recrutamento_test`) | Evita dependência de Docker rodando durante o desenvolvimento; mesmo princípio (banco real, não mock) |
 | `prisma/seeds/` (pasta, dados massivos) | `prisma/seed.ts` (arquivo único, mínimo) | Seed mínimo por fase (RBAC + 1 usuário por papel); dados de domínio completos ficam para quando os módulos existirem |
 | Swagger no `main.ts` desde o início | Implementado depois, quando os 8 controllers de domínio já estavam estáveis | Decisão explícita registrada desde a Fase 2: implementar só quando os controllers estabilizassem, para não retrabalhar — cumprida, e concluída (ver §2.2) |
-| `ThrottlerGuard` conectado | `@nestjs/throttler` instalado, guard não conectado | Rate limiting é item pendente (`FEEDBACKS-MELHORIA.md`) |
-| `.github/workflows/` com CI | Ainda não implementado | Registrado como melhoria futura (`FEEDBACKS-MELHORIA.md`) |
+| `ThrottlerGuard` conectado | `@nestjs/throttler` instalado, guard não conectado | Rate limiting é item pendente |
+| `.github/workflows/` com CI | Ainda não implementado | Registrado como melhoria futura |
 | `docker/`, `Dockerfile`, observabilidade | 🟢 Concluído (frente de trabalho separada, revisado aqui) | Ver §2.2 |
 
 ## 4. Instalação e execução
@@ -465,7 +468,7 @@ http://localhost:3000/docs
 ```
 
 Pública de propósito — não pede `x-api-key` nem login (decisão de
-produto registrada em `docs/fases/TRIAGEM-REVISOES-RODADA15.md`). Lista
+produto, ver `src/common/swagger.config.ts`). Lista
 os 43 endpoints em 11 tags em português, com o schema de cada DTO,
 todos os códigos HTTP que cada rota realmente retorna, e o botão
 **Authorize** pronto pra testar de verdade: cole a `x-api-key` do seu
@@ -473,10 +476,6 @@ todos os códigos HTTP que cada rota realmente retorna, e o botão
 no campo `jwt` (sem o prefixo `Bearer`, o Swagger adiciona sozinho). O
 JSON puro da especificação fica em `http://localhost:3000/docs-json`.
 
-Pra um roteiro completo de testes manuais no Swagger — o que cada papel
-(CANDIDATE/RECRUITER/ADMIN) pode e não pode fazer, os payloads completo ×
-reduzido, e uma sequência pronta pra demonstrar a arquitetura numa
-apresentação — ver `docs/fases/GUIA-TESTES-SWAGGER-APRESENTACAO.md`.
 Credenciais de teste (seed): `admin@recrutamento.test`,
 `recrutador@recrutamento.test`, `candidato@recrutamento.test`, senha
 `Senha@123` (ou o valor de `SEED_USER_PASSWORD` no seu `.env`, se tiver
@@ -633,10 +632,7 @@ Cobre o fluxo principal de ponta a ponta — registro → login → empresa →
 vaga → candidatura → contratação — mais upload e um erro de cada
 categoria (400/401/403/404/409). Substitua `SUA_API_KEY` pelo valor do
 seu `.env`; nunca cole a chave real aqui ou em qualquer lugar público
-(mesma razão pela qual o `example` do Swagger não usa credenciais reais
-— ver `docs/fases/TRIAGEM-REVISOES-RODADA15.md`). Um roteiro interativo
-mais completo, com todos os papéis, está no
-`docs/fases/GUIA-TESTES-SWAGGER-APRESENTACAO.md` (§4.8).
+(mesma razão pela qual o `example` do Swagger não usa credenciais reais).
 
 **1. Registrar um candidato** (`201`, já devolve os tokens):
 

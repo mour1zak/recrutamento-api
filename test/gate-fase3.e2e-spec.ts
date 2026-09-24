@@ -11,8 +11,8 @@ loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 /**
  * Gate Fase 3 (concorrência) — dois itens que só fazem sentido testar
  * contra o BANCO diretamente, não pela API: protegem contra SQL bruto
- * que contorna a normalização/timestamps da aplicação (achado Qwen
- * rodada 4, R13, e a lacuna de `updatedAt` exposta pelo próprio
+ * que contorna a normalização/timestamps da aplicação (achado da revisão
+ * técnica R13, e a lacuna de `updatedAt` exposta pelo próprio
  * `$queryRaw` de `hireWithCapacityCheck`). Testar via API não exercitaria
  * a proteção nova — a aplicação já normaliza email antes de qualquer
  * escrita normal.
@@ -42,7 +42,7 @@ describe('Gate Fase 3 — proteções de banco (e2e)', () => {
     await app.close();
   });
 
-  it('índice único case-insensitive rejeita duplicata de email mesmo via SQL bruto (acha Qwen rodada 4, R13)', async () => {
+  it('índice único case-insensitive rejeita duplicata de email mesmo via SQL bruto (acha da revisão técnica, R13)', async () => {
     const email = `gate-fase3-${Date.now()}@example.com`;
     const user = await prisma.user.create({ data: { name: 'Gate Fase 3', email, password: 'x', roleId: candidateRoleId } });
     cleanupUserIds.push(user.id);
@@ -92,8 +92,8 @@ describe('Gate Fase 3 — proteções de banco (e2e)', () => {
     expect(caught).toBeDefined();
     // 23514 = check_violation (SQLSTATE do Postgres) — o mesmo código que
     // `SQLSTATE_CONFLICT` em `global-exception.filter.ts` mapeia pra
-    // `409` desde a rodada 7, antes mesmo desta CHECK existir na
-    // migration (adiantado pelo Qwen).
+    // `409` desde antes, mesmo sem esta CHECK existir na
+    // migration (adiantado na revisão técnica).
     expect(caught?.meta?.driverAdapterError?.cause?.originalCode).toBe('23514');
   });
 });

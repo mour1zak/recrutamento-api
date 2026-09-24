@@ -53,7 +53,7 @@ describe('CEP lookup (e2e)', () => {
     }
   });
 
-  // Achado Qwen rodada 11 (N1), mesmo contrato reutilizado aqui: CEP que o
+  // Achado da revisão técnica (N1), mesmo contrato reutilizado aqui: CEP que o
   // provedor confirma não existir é erro de quem perguntou (400), nunca
   // silenciosamente devolvido como endereço vazio.
   it('GET /cep/:cep inexistente (real, sem mock) -> 400, reason cep_nao_encontrado', () => {

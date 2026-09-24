@@ -10,8 +10,8 @@ import { UpdateUserRoleDto } from './dto/update-user-role.dto.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
 // Primeiro endpoint protegido por permission key do projeto — serve
-// também de prova de que a correção do achado C2 (ordem dos guards,
-// rodada 4) funciona: usuário com `user:manage` → 2xx; sem a permissão →
+// também de prova de que a correção do achado C2 (ordem dos guards)
+// funciona: usuário com `user:manage` → 2xx; sem a permissão →
 // 403 (ver test/users.e2e-spec.ts).
 //
 // deactivate/reactivate devolvem `200` + o usuário atualizado (decisão
@@ -119,7 +119,7 @@ export class UsersController {
     return this.usersService.deactivate(id, user.id);
   }
 
-  // Achado Qwen rodada 6 (N1-c): sem esta rota, uma desativação errada
+  // Achado da revisão técnica (N1-c): sem esta rota, uma desativação errada
   // (ex.: ADMIN desativa o recrutador errado) era irreversível pela API.
   @ApiOperation({ summary: 'Reativar usuário' })
   @ApiParam({ name: 'id', type: Number })

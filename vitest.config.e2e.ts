@@ -7,7 +7,7 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
-    // Achado Qwen rodada 12 (contexto do K3): arquivos de e2e compartilham
+    // Achado da revisão técnica (contexto do K3): arquivos de e2e compartilham
     // o MESMO banco de teste. Por padrão o Vitest roda arquivos de teste
     // em paralelo (processos/threads diferentes) — o que é seguro pra
     // dados isolados por teste (companies/jobs/users com nome único por

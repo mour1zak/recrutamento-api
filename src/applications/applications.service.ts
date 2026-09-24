@@ -11,7 +11,7 @@ import { UpdateApplicationStatusDto } from './dto/update-application-status.dto.
 import { WithdrawApplicationDto } from './dto/withdraw-application.dto.js';
 import { ListApplicationsQueryDto } from './dto/list-applications-query.dto.js';
 
-// Fluxo de avaliação (Fase 1, PARECER-DEEPSEEK-FASE1.md, mais o enum do
+// Fluxo de avaliação (definido na Fase 1 de modelagem, mais o enum do
 // schema). Terminal: HIRED, REJECTED, WITHDRAWN — nenhuma saída. WITHDRAWN
 // só é alcançável pela rota dedicada `/withdraw` (nunca aparece como
 // destino de nenhuma transição aqui — o candidato desiste, o recrutador
@@ -26,7 +26,7 @@ const VALID_TRANSITIONS: Record<ApplicationStatus, ApplicationStatus[]> = {
   WITHDRAWN: [],
 };
 
-// Mesma lista positiva usada em CandidateProfile (achado Qwen rodada 10,
+// Mesma lista positiva usada em CandidateProfile (achado da revisão técnica,
 // C2) — reaproveitada aqui de propósito: é a mesma pergunta de negócio
 // ("este status representa avaliação em andamento?"), então usar a mesma
 // forma (lista positiva, não negação) evita reintroduzir o mesmo bug numa
@@ -57,7 +57,7 @@ function toFullResponse(application: ApplicationWithRelations) {
 }
 
 async function toReducedResponse(prisma: PrismaService, application: ApplicationWithRelations) {
-  // Achado Fase 1 (Pergunta 2 do DeepSeek): antes de a candidatura sair de
+  // Achado Fase 1 (Pergunta 2 da especificação de negócio): antes de a candidatura sair de
   // PENDING, o recrutador vê só o mínimo pra triagem — cobertura +
   // documento (o candidato mandou de propósito pra essa vaga), mais
   // nome/headline/skills do perfil (mesma redução de CandidateProfile).
@@ -131,7 +131,7 @@ export class ApplicationsService {
   }
 
   private async assertOwnDocumentOrThrow(documentId: number, candidateId: number): Promise<void> {
-    // Pendência registrada desde a Fase 1 (CONDICOES-ENTRADA-FASE2.md):
+    // Pendência registrada desde a Fase 1:
     // `resumeDocument.ownerId === candidateId` não é enforçável só pela FK
     // — sem esta checagem, um candidato poderia anexar à própria
     // candidatura um documento de OUTRO usuário só sabendo o id (IDOR).
@@ -159,9 +159,9 @@ export class ApplicationsService {
     const job = await this.prisma.job.findUnique({ where: { id: jobId }, select: { companyId: true } });
     // Mesmo padrão anti-enumeração de `JobsService`: vaga fora do escopo
     // do recrutador é 404, nunca 403 (não confirma nem nega existência).
-    // Achado CRÍTICO Qwen rodada 12 (K5): faltava checar se a empresa do
-    // recrutador ainda está ATIVA — `isCompanyOperable()` foi extraído na
-    // rodada 11 exatamente pra este consumidor e nunca foi importado
+    // Achado CRÍTICO da revisão técnica (K5): faltava checar se a empresa do
+    // recrutador ainda está ATIVA — `isCompanyOperable()` foi extraído
+    // anteriormente exatamente pra este consumidor e nunca foi importado
     // aqui. Sem isso, um recrutador de empresa desativada continuava
     // lendo candidaturas normalmente (medido: 200 onde `Jobs`/
     // `CandidateProfile` já dão 404 pro mesmo cenário).
@@ -204,7 +204,7 @@ export class ApplicationsService {
     // RECRUITER: só enxerga candidatura de vaga da própria empresa, com a
     // empresa ainda ATIVA — fora disso, 404 (mesma política
     // anti-enumeração do resto do projeto, nunca 403). Achado CRÍTICO
-    // Qwen rodada 12 (K5): a checagem de empresa ativa faltava aqui.
+    // da revisão técnica (K5): a checagem de empresa ativa faltava aqui.
     if (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))) {
       throw applicationNotFound();
     }
@@ -248,13 +248,13 @@ export class ApplicationsService {
     return this.prisma.application.findUniqueOrThrow({ where: { id }, include: APPLICATION_INCLUDE });
   }
 
-  // Achado CRÍTICO Qwen rodada 12 (K1): a versão anterior comparava
+  // Achado CRÍTICO da revisão técnica (K1): a versão anterior comparava
   // `filledCount` (coluna, valor no instante da escrita) contra
   // `application.job.vacancies` — um NÚMERO lido ANTES desta transação
   // começar, não a coluna `vacancies` em si. Enquanto `vacancies` não
   // muda no meio do caminho, as duas comparações coincidem — foi por
   // isso que o teste original (2 requisições, vacancies estável) passou.
-  // Medido pelo Qwen: reduzir `vacancies` (`PATCH /jobs/:id`) ENQUANTO
+  // Medido na revisão técnica: reduzir `vacancies` (`PATCH /jobs/:id`) ENQUANTO
   // uma contratação está em voo faz a comparação usar o valor antigo
   // (maior), e a escrita passa mesmo violando o invariante — 15/25
   // corridas produziram `filledCount > vacancies`. A API do Prisma não
@@ -354,7 +354,7 @@ export class ApplicationsService {
 
   private async findScopedForRecruiterOrThrow(id: number, currentUser: AuthenticatedUser) {
     const application = await this.prisma.application.findUnique({ where: { id }, include: APPLICATION_INCLUDE });
-    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` —
+    // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()` —
     // sem ela, um recrutador de empresa desativada continuava mudando o
     // status de candidaturas normalmente.
     if (!application || (!isAdmin(currentUser) && (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {

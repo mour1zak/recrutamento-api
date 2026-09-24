@@ -11,7 +11,7 @@ import { errorBody } from '../exceptions/error-body.util.js';
  * app.module.ts, NESTA ordem: [ApiKeyGuard, JwtAuthGuard,
  * PermissionsGuard] — guards globais rodam antes de qualquer guard de
  * controller/rota, na ordem em que aparecem no array de providers.
- * CORREÇÃO (achado crítico Qwen rodada 4, C2): a versão anterior deste
+ * CORREÇÃO (achado crítico da revisão técnica, C2): a versão anterior deste
  * comentário afirmava esse comportamento sem que ele existisse de fato —
  * o JwtAuthGuard só era aplicado por controller (@UseGuards), então rodava
  * DEPOIS deste guard global, e toda rota com @Permissions() retornava 403
@@ -20,8 +20,7 @@ import { errorBody } from '../exceptions/error-body.util.js';
  *
  * Só decide "o papel tem esta permission key" — 403 quando falta. Recurso
  * de terceiro (permissão existe, mas o recurso não é do usuário) é 404,
- * decidido no Service, não aqui (política registrada em
- * FASE-1-MODELAGEM.md §5.1).
+ * decidido no Service, não aqui (política definida na fase de modelagem).
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -40,7 +39,7 @@ export class PermissionsGuard implements CanActivate {
     const user: AuthenticatedUser | undefined = context.switchToHttp().getRequest().user;
 
     if (!user || !required.every((permission) => user.permissions.includes(permission))) {
-      // Achado Qwen rodada 8 (ressalva 6): rotas de domínio devolviam
+      // Achado da revisão técnica (ressalva 6): rotas de domínio devolviam
       // `404`/`409` com `reason` machine-readable, mas o `403` (que vem
       // deste guard global, compartilhado por Auth/Users/domínio) não
       // tinha nenhum — contrato incompleto. `permission_denied` fecha a

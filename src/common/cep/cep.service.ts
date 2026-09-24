@@ -10,17 +10,17 @@ export interface CepAddress {
   state: string | null;
 }
 
-// Achado Qwen rodada 11 (N1): a versão anterior devolvia só os três campos
+// Achado da revisão técnica (N1): a versão anterior devolvia só os três campos
 // de endereço, `null` tanto pra "CEP inexistente" (determinístico, culpa
 // de quem enviou) quanto pra "API fora do ar/timeout" (transitório, culpa
 // de ninguém) — os dois casos eram indistinguíveis pra quem chamava. Isso
-// tinha um efeito colateral concreto: a correção da rodada 10 (preservar
+// tinha um efeito colateral concreto: a correção anterior (preservar
 // endereço anterior em `update()` quando a consulta "não resolveu nada")
 // passou a tratar um CEP genuinamente inexistente como se fosse uma falha
 // transitória, permitindo salvar um `cep` novo com o `street/city/state`
 // do endereço ANTIGO — um par CEP×endereço inconsistente. Contrato
-// discriminado por `status`, como o `PARECER-DEEPSEEK-FASE1.md` §5 já
-// especificava desde a Fase 1 e nunca tinha sido implementado:
+// discriminado por `status`, como a especificação de negócio da Fase 1 (§5) já
+// especificava desde o início e nunca tinha sido implementado:
 // - "ok": consulta resolveu, os três campos vêm preenchidos.
 // - "invalid": o provedor confirmou que o CEP não existe — quem chama
 //   deve rejeitar a operação (o CEP em si está errado, não é transitório).
@@ -50,9 +50,9 @@ interface ViaCepResponse {
  * Resolve endereço a partir de CEP (requisito obrigatório do enunciado:
  * `HttpService` consumindo CEP/localização, com timeout e erro tratados).
  *
- * Decisão da Fase 1 (PARECER-DEEPSEEK-FASE1.md §5, 8 cenários), agora com
+ * Decisão da Fase 1 (especificação de negócio §5, 8 cenários), agora com
  * o contrato discriminado que o §5 sempre especificou e que só foi
- * implementado na rodada 11: CEP explicitamente inválido é
+ * implementado depois: CEP explicitamente inválido é
  * responsabilidade de quem enviou (`status: "invalid"`, o chamador decide
  * rejeitar); API fora do ar, timeout ou payload malformado nunca devem
  * impedir a operação principal (`status: "unavailable"`, o chamador

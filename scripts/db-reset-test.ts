@@ -1,14 +1,14 @@
 import { config as parseEnvFile } from 'dotenv';
 import { spawnSync } from 'node:child_process';
 
-// Achado crítico Qwen rodada 7: a versão anterior deste script era
+// Achado crítico da revisão técnica: a versão anterior deste script era
 // `dotenv run -f .env.test -- prisma migrate reset --force && ...`. O
 // `dotenv run` NÃO sobrescreve variáveis já existentes no ambiente por
 // padrão — então, se `DATABASE_URL` já estivesse exportada no shell (ex.:
 // alguém seguindo o README §4.7, que instrui exatamente isso pra rodar
 // `migrate deploy`/seed manualmente), o `--force` do `migrate reset`
 // apagava QUALQUER banco apontado por essa variável, não o
-// `recrutamento_test`. Provado por Qwen com um "banco canário": criou um
+// `recrutamento_test`. Provado pela revisão técnica com um "banco canário": criou um
 // banco separado, exportou `DATABASE_URL` apontando pra ele, e o script
 // apagou o canário em vez do banco de teste.
 //
@@ -29,7 +29,7 @@ const databaseName = targetUrl.pathname.replace(/^\//, '');
 if (!/test/i.test(databaseName)) {
   console.error(
     `Recusado: o banco de ".env.test" ("${databaseName}") não contém "test" no nome — ` +
-      'este script só deve apagar um banco de teste descartável (achado Qwen rodada 7).',
+      'este script só deve apagar um banco de teste descartável (achado da revisão técnica).',
   );
   process.exit(1);
 }
@@ -42,7 +42,7 @@ const childEnv = { ...process.env, ...parsed };
 // eles são sempre literais fixos (nunca vêm de input externo). Passar o
 // comando inteiro como uma única string (sem array de `args` separado)
 // evita o aviso sem perder a proteção: não há nada externo pra escapar.
-// Achado Qwen rodada 11 (ressalva 3): faltava `prisma generate` antes do
+// Achado da revisão técnica (ressalva 3): faltava `prisma generate` antes do
 // `db seed` — o seed importa o client gerado (`src/generated/prisma/`),
 // que é gitignored. Em qualquer clone novo (sem `npm run build`/`test:e2e`
 // rodado antes, que geram o client como efeito colateral), este script

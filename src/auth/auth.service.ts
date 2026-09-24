@@ -16,7 +16,7 @@ interface TokenPair {
 
 // Hash bcrypt válido (de uma senha descartável, nunca usada de verdade) só
 // para gastar o mesmo tempo de CPU quando o email não existe. Corrige
-// achado da auditoria Qwen rodada 4 (P4, medido por execução): sem isso,
+// achado da auditoria técnica (P4, medido por execução): sem isso,
 // "usuário não existe" respondia em ~0ms e "senha errada" em ~72ms — a
 // mensagem de erro era genérica, mas o TEMPO não era, permitindo descobrir
 // quais emails estão cadastrados só medindo latência.
@@ -79,7 +79,7 @@ export class AuthService {
       throw invalid();
     }
 
-    // Rotação atômica (corrige achado crítico Qwen rodada 4, C4): a versão
+    // Rotação atômica (corrige achado crítico da revisão técnica, C4): a versão
     // anterior fazia um SELECT (checa revokedAt) seguido de um UPDATE
     // separado — duas requisições concorrentes com o MESMO refresh token
     // liam ambas `revokedAt = null` antes de qualquer uma escrever, e as

@@ -7,6 +7,6 @@ export const PERMISSIONS_KEY = 'permissions';
  * Marca um endpoint com a(s) permission key(s) necessárias. Só decide "o
  * papel pode fazer isso" — escopo ("é da própria empresa"/"é o próprio
  * recurso") continua sendo checado no Service (RBAC dinâmico controla
- * capacidade, não escopo — decisão registrada em FASE-1-MODELAGEM.md).
+ * capacidade, não escopo — decisão da fase de modelagem).
  */
 export const Permissions = (...permissions: PermissionKey[]) => SetMetadata(PERMISSIONS_KEY, permissions);

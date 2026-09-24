@@ -60,7 +60,7 @@ describe('Jobs (e2e)', () => {
     adminUserId = adminLogin.body.user.id;
     candidateToken = candidateLogin.body.accessToken;
 
-    // Achado crítico Qwen rodada 8 (C1): login com o RECRUITER real do
+    // Achado crítico da revisão técnica (C1): login com o RECRUITER real do
     // seed, não um fabricado via Prisma com `companyId` já definido — foi
     // exatamente a fabricação manual que deixou o bug (companyId null =
     // acesso global) invisível para a suíte anterior.
@@ -251,7 +251,7 @@ describe('Jobs (e2e)', () => {
     it('PATCH /jobs/:id reduzindo vacancies abaixo do filledCount -> 409', async () => {
       // filledCount só é escrito pelo fluxo de contratação (Application,
       // Fase 4) — simulado direto no banco pra testar a invariante do
-      // Service isoladamente. Achado Qwen rodada 12 (K1): agora existe um
+      // Service isoladamente. Achado da revisão técnica (K1): agora existe um
       // `CHECK (filledCount <= vacancies)` na migration — `vacancies`
       // precisa subir JUNTO com `filledCount` neste setup direto, senão o
       // próprio `UPDATE` de preparação do teste já viola a constraint
@@ -288,7 +288,7 @@ describe('Jobs (e2e)', () => {
       expect(res.body.data.some((j: { id: number }) => j.id === jobId)).toBe(false);
     });
 
-    it('GET /jobs/:id (OPEN) inclui o nome da empresa (achado Qwen rodada 8, R1)', async () => {
+    it('GET /jobs/:id (OPEN) inclui o nome da empresa (achado da revisão técnica, R1)', async () => {
       const res = await request(app.getHttpServer())
         .get(`/jobs/${jobId}`)
         .set('x-api-key', apiKey)
@@ -297,7 +297,7 @@ describe('Jobs (e2e)', () => {
       expect(res.body.company).toEqual({ id: companyAId, name: expect.any(String) });
     });
 
-    it('GET /jobs (lista pública) não expõe createdById nem filledCount (achado Qwen rodada 8, R5)', async () => {
+    it('GET /jobs (lista pública) não expõe createdById nem filledCount (achado da revisão técnica, R5)', async () => {
       const res = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
       const item = res.body.data.find((j: { id: number }) => j.id === jobId);
       expect(item).toBeDefined();
@@ -308,16 +308,16 @@ describe('Jobs (e2e)', () => {
   });
 
   /**
-   * Achado crítico Qwen rodada 8 (C1): `companyId: null` era tratado como
+   * Achado crítico da revisão técnica (C1): `companyId: null` era tratado como
    * "acesso a qualquer empresa" em `isInScope()`/`resolveCompanyIdForCreate()`
    * — e o RECRUITER do seed nascia sem `companyId`, com senha pública. O
-   * Qwen editou, cancelou e leu vaga de outra empresa, e chegou a criar e
+   * revisão técnica editou, cancelou e leu vaga de outra empresa, e chegou a criar e
    * publicar uma vaga em nome de empresa alheia, usando só a credencial
    * documentada do seed. Corrigido: seed agora vincula o recrutador a uma
    * empresa; `isInScope`/`resolveCompanyIdForCreate` tratam "sem empresa
    * e não-ADMIN" como fora de escopo, igual `findMine` já fazia.
    */
-  describe('C1 (rodada 8): recrutador do SEED nunca tem acesso global', () => {
+  describe('C1: recrutador do SEED nunca tem acesso global', () => {
     let companyJobIdForSeedTest: number;
 
     beforeAll(async () => {
@@ -364,23 +364,23 @@ describe('Jobs (e2e)', () => {
   });
 
   /**
-   * Achado crítico Qwen rodada 8 (C2): `updateStatus()` fazia
+   * Achado crítico da revisão técnica (C2): `updateStatus()` fazia
    * leitura-então-escrita em passos separados — duas transições
    * simultâneas na mesma vaga liam o mesmo status de origem, as duas
    * passavam na validação, e a última escrita vencia, sobrescrevendo um
-   * estado TERMINAL (`CANCELED`) em 52% das corridas medidas pelo Qwen.
+   * estado TERMINAL (`CANCELED`) em 52% das corridas medidas na revisão técnica.
    * Corrigido com `updateMany` condicionado ao status lido — a segunda
    * escrita perde de verdade, nunca aplica por cima silenciosamente.
    */
-  describe('C2 (rodada 8, asserção corrigida na rodada 9): duas transições simultâneas nunca sobrescrevem um estado terminal', () => {
-    // Achado Qwen rodada 9 (N2): a asserção original ("exatamente uma
+  describe('C2 (asserção corrigida posteriormente): duas transições simultâneas nunca sobrescrevem um estado terminal', () => {
+    // Achado da revisão técnica (N2): a asserção original ("exatamente uma
     // responde 200") é FALSA como invariante — existe um entrelaçamento
     // legítimo em que a requisição de PAUSED commita primeiro, e a de
     // CANCELED lê `PAUSED` depois (não mais `OPEN`) e aplica
     // `PAUSED→CANCELED`, que É uma transição válida. Isso produz
     // `[200,200]` com `final=CANCELED` — resultado correto, não uma
     // corrida perdida. A versão anterior deste teste falhava ~5% das
-    // execuções nesse cenário legítimo (Qwen capturou
+    // execuções nesse cenário legítimo (revisão técnica capturou
     // `AssertionError: expected 2 to be 1` rodando 20x).
     //
     // O invariante real (o que "nunca sobrescreve estado terminal"
@@ -388,7 +388,7 @@ describe('Jobs (e2e)', () => {
     // dois pedidos (nunca um terceiro valor); e se a requisição de
     // CANCELED respondeu 200, o estado final TEM que ser CANCELED — um
     // "sim" pra cancelar nunca pode ser desfeito por um "pause" perdedor.
-    // Rodado 10x (sugestão do Qwen — uma corrida só não pega regressão
+    // Rodado 10x (sugestão da revisão técnica — uma corrida só não pega regressão
     // com confiança), cada vez numa vaga nova.
     it('OPEN -> {CANCELED, PAUSED} simultâneos, 10 rodadas: nenhum 5xx, e CANCELED bem-sucedido nunca é desfeito', async () => {
       for (let i = 0; i < 10; i++) {
@@ -426,7 +426,7 @@ describe('Jobs (e2e)', () => {
   });
 
   /**
-   * Achado crítico Qwen rodada 8 (C3): só o ramo ADMIN de
+   * Achado crítico da revisão técnica (C3): só o ramo ADMIN de
    * `resolveCompanyIdForCreate` checava `company.isActive` — um
    * RECRUITER de empresa desativada continuava criando, editando e
    * publicando vagas normalmente (a vaga aparecia na vitrine pública),
@@ -435,7 +435,7 @@ describe('Jobs (e2e)', () => {
    * toda ESCRITA de vaga (create/update/updateStatus); leituras de vagas
    * já `OPEN` não são afetadas retroativamente.
    */
-  describe('C3 (rodada 8): recrutador de empresa desativada não opera mais vagas', () => {
+  describe('C3: recrutador de empresa desativada não opera mais vagas', () => {
     let inactiveCompanyRecruiterToken: string;
     let openJobOfInactiveCompanyId: number;
 
@@ -485,14 +485,14 @@ describe('Jobs (e2e)', () => {
         .expect(404);
     });
 
-    // Achado Qwen rodada 9 (Q3/N8): a decisão original da rodada 8 ("sem
+    // Achado da revisão técnica (Q3/N8): a decisão original ("sem
     // cascata retroativa — vaga já OPEN continua na vitrine") criava uma
     // inconsistência visível: a vitrine anunciava uma empresa que a
     // própria API já dizia não existir (`GET /companies/:id` → 404).
     // Corrigido sem cascatear o STATUS da vaga (isso destruiria
     // informação que o `reactivate` não conseguiria desfazer) — só a
     // VISIBILIDADE pública passou a considerar `company.isActive`.
-    it('vaga já OPEN da empresa desativada some da vitrine pública e do detalhe público (Q3/N8, rodada 9)', async () => {
+    it('vaga já OPEN da empresa desativada some da vitrine pública e do detalhe público (Q3/N8)', async () => {
       const list = await request(app.getHttpServer()).get('/jobs?limit=100').set('x-api-key', apiKey).expect(200);
       expect(list.body.data.some((j: { id: number }) => j.id === openJobOfInactiveCompanyId)).toBe(false);
 

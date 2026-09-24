@@ -3,7 +3,7 @@ import { ArgumentsHost, Logger, PayloadTooLargeException } from '@nestjs/common'
 import { GlobalExceptionFilter } from './global-exception.filter.js';
 import { HTTP_REQUEST_START } from '../interceptors/logging.interceptor.js';
 
-// Achado crítico da revisão final (Qwen): antes desta correção, o
+// Achado crítico da revisão final: antes desta correção, o
 // `LoggingInterceptor` logava erros com o status ERRADO (o padrão que o
 // Nest atribui à rota ANTES de qualquer coisa rodar — ex.: `201` pra
 // POST — não o status que este filtro de fato envia depois de traduzir a

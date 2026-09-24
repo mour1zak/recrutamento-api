@@ -31,7 +31,7 @@ export class UpdateCandidateProfileDto {
   @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP deve ter o formato 00000-000 ou 00000000.' })
   cep?: string;
 
-  // Achado Qwen rodada 10 (ressalva 2): só `@ArrayMaxSize` não limita o
+  // Achado da revisão técnica (ressalva 2): só `@ArrayMaxSize` não limita o
   // tamanho de CADA item — 30 strings de 3.000 caracteres passavam
   // (`200`), e como `skills` aparece até no payload REDUZIDO (visível a
   // qualquer recrutador com candidatura `PENDING`), um candidato

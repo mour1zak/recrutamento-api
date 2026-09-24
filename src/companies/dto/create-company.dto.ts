@@ -28,8 +28,8 @@ export class CreateCompanyDto {
   // é opcional no schema. Achado #9 do enunciado (integração externa
   // falhando de forma controlada): uma falha de REDE não bloqueia a
   // criação (empresa criada sem endereço enriquecido); um CEP que o
-  // provedor confirma não existir bloqueia com 400 (achado Qwen rodada
-  // 11, N1 — ver CepService).
+  // provedor confirma não existir bloqueia com 400 (achado da revisão
+  // técnica, N1 — ver CepService).
   @ApiProperty({ description: 'CEP — consultado via integração externa (ViaCEP) pra enriquecer o endereço. Se o provedor confirmar que o CEP não existe, a criação é rejeitada (`400`); só falha de rede/timeout não bloqueia.', example: '01310-100' })
   @IsString()
   @Matches(/^\d{5}-?\d{3}$/, { message: 'CEP deve ter o formato 00000-000 ou 00000000.' })

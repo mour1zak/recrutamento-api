@@ -7,19 +7,17 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
  * `main.ts` direto disparava `bootstrap()` (efeito colateral de
  * `app.listen()`) só por importar o módulo.
  *
- * Histórico da decisão sobre proteger `/docs` (Rodada 15 do Qwen):
- * chegamos a colocar `x-api-key` obrigatória (com fallback de Basic Auth
- * pra abrir pelo navegador), mas a UX ficou ruim — o popup nativo de
- * login pede "usuário/senha", e não existe usuário nenhum neste projeto,
- * só a chave compartilhada; forçar alguém a entender "digite qualquer
- * coisa no usuário, a x-api-key na senha" é confuso pra quem só quer ler
- * a documentação. Decisão final (dona do produto, ciente do trade-off e
- * da recomendação em contrário do Qwen): `/docs`/`/docs-json` voltam a
- * ser públicos. A correção que IMPORTA de verdade continua valendo
- * independente dessa escolha: nenhum `example` do Swagger usa uma
- * credencial real do seed (ver `auth/dto/login.dto.ts`) — era isso que
- * tornava a exposição pública perigosa, não a exposição em si. Registro
- * completo em `docs/fases/TRIAGEM-REVISOES-RODADA15.md`.
+ * Histórico da decisão sobre proteger `/docs`: chegamos a colocar
+ * `x-api-key` obrigatória (com fallback de Basic Auth pra abrir pelo
+ * navegador), mas a UX ficou ruim — o popup nativo de login pede
+ * "usuário/senha", e não existe usuário nenhum neste projeto, só a
+ * chave compartilhada; forçar alguém a entender "digite qualquer coisa
+ * no usuário, a x-api-key na senha" é confuso pra quem só quer ler a
+ * documentação. Decisão final, ciente do trade-off: `/docs`/`/docs-json`
+ * voltam a ser públicos. A correção que IMPORTA de verdade continua
+ * valendo independente dessa escolha: nenhum `example` do Swagger usa
+ * uma credencial real do seed (ver `auth/dto/login.dto.ts`) — era isso
+ * que tornava a exposição pública perigosa, não a exposição em si.
  */
 export function configureSwagger(app: INestApplication): void {
   const swaggerConfig = new DocumentBuilder()

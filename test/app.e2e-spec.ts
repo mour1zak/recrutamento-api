@@ -8,7 +8,7 @@ import { configureCors } from '../src/common/cors.config.js';
 
 loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
-// Precisa do header x-api-key (achado Qwen rodada 4, C3): o ApiKeyGuard é
+// Precisa do header x-api-key (achado da revisão técnica, C3): o ApiKeyGuard é
 // global desde a decisão CE-1, inclusive para o healthcheck. Este teste
 // falhava (401) porque foi escrito antes dessa decisão e nunca atualizado.
 describe('AppController (e2e)', () => {

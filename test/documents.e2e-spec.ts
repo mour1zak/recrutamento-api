@@ -163,7 +163,7 @@ describe('Documents (e2e)', () => {
   });
 
   it('candidatura avança para UNDER_REVIEW E o documento é anexado -> recrutador da empresa agora consegue baixar', async () => {
-    // Achado Qwen rodada 12 (K6): acesso agora exige o vínculo EXPLÍCITO
+    // Achado da revisão técnica (K6): acesso agora exige o vínculo EXPLÍCITO
     // (`resumeDocumentId` anexado à candidatura), não mais "qualquer
     // documento do candidato" — por isso este teste passa a anexar o
     // documento à candidatura antes de esperar acesso, o que reflete a
@@ -173,7 +173,7 @@ describe('Documents (e2e)', () => {
     expect(res.headers['content-disposition']).toContain('curriculo.pdf');
   });
 
-  it('outro documento do MESMO candidato, nunca anexado -> continua 404 mesmo com a candidatura em UNDER_REVIEW (achado Qwen rodada 12, K6)', async () => {
+  it('outro documento do MESMO candidato, nunca anexado -> continua 404 mesmo com a candidatura em UNDER_REVIEW (achado da revisão técnica, K6)', async () => {
     const res = await request(app.getHttpServer())
       .post('/documents')
       .set('x-api-key', apiKey)
@@ -186,7 +186,7 @@ describe('Documents (e2e)', () => {
     await request(app.getHttpServer()).get(`/documents/${unattachedDocumentId}`).set('x-api-key', apiKey).set('Authorization', `Bearer ${recruiterAToken}`).expect(404);
   });
 
-  // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` em
+  // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()` em
   // `DocumentsService` — o caso mais grave do relatório, já que o
   // documento (currículo) continuava sendo baixado por um recrutador cuja
   // empresa acabou de ser desativada por um ADMIN.

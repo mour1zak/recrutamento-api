@@ -16,7 +16,7 @@ export const STATUS_TEXT: Record<number, string> = {
 /**
  * Corpo estruturado de erro com um `reason` machine-readable, além da
  * `message` legível por humano — decisão tomada a partir do módulo
- * Companies em diante (sugestão Qwen/DeepSeek, Fase 2). O Auth (já
+ * Companies em diante (sugestãa revisão técnica/especificação de negócio, Fase 2). O Auth (já
  * auditado) continua com o formato antigo ({statusCode, error, message}
  * sem `reason`), não foi retroalimentado para não reabrir escopo já
  * fechado.
@@ -26,7 +26,7 @@ export const STATUS_TEXT: Record<number, string> = {
  * um objeto literal (nosso caso, para incluir `reason`) substitui o corpo
  * inteiro, sem merge implícito.
  *
- * Achado Qwen rodada 8 (ressalva 6, contrato de erro): antes, este corpo
+ * Achado da revisão técnica (ressalva 6, contrato de erro): antes, este corpo
  * não tinha o campo `error` que o `GlobalExceptionFilter.respond()` (usado
  * pelos erros mapeados do Prisma) sempre inclui — dois formatos de `409`
  * conviviam no mesmo módulo, um com `error` e outro sem. Incluído aqui

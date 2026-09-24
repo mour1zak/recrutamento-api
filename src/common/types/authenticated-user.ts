@@ -11,7 +11,7 @@ export interface AuthenticatedUser {
   email: string;
   name: string;
   roleId: number;
-  // `string & {}` (não `string` puro): achado Qwen rodada 5 (N12) — um
+  // `string & {}` (não `string` puro): achado da revisão técnica (N12) — um
   // union `SystemRoleName | string` é "overridden by string" (o linter
   // reclamou com razão: `roleName === 'ADMI'` continuava compilando,
   // porque `string` sozinho já aceita qualquer coisa). A intenção aqui é

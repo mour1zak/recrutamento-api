@@ -4,12 +4,11 @@ import { ConfigService } from '@nestjs/config';
 
 /**
  * Guard global (registrado como APP_GUARD) — camada de "cliente conhecido",
- * separada de "quem é o usuário" (isso é o JwtAuthGuard). Decisão CE-1
- * (CONDICOES-ENTRADA-FASE2.md): o consumidor desta API é sempre um cliente
+ * separada de "quem é o usuário" (isso é o JwtAuthGuard). Decisão CE-1:
+ * o consumidor desta API é sempre um cliente
  * confiável (Postman/Swagger/curl), não um navegador — por isso a chave é
  * exigida globalmente, sem lista de rotas isentas, inclusive em
- * /auth/login. Ver FASE-1-MODELAGEM.md §5.1 para a limitação documentada
- * (é defesa em camadas com um shared secret, não "Zero Trust").
+ * /auth/login (é defesa em camadas com um shared secret, não "Zero Trust").
  */
 @Injectable()
 export class ApiKeyGuard implements CanActivate {
@@ -33,7 +32,7 @@ export class ApiKeyGuard implements CanActivate {
     return true;
   }
 
-  // Comparação em tempo constante (achado da auditoria Qwen: comparação
+  // Comparação em tempo constante (achado da auditoria técnica: comparação
   // ingênua com === vaza timing information sobre onde a string diverge).
   // Hash de tamanho fixo antes de comparar evita lidar com strings de
   // tamanhos diferentes, que o timingSafeEqual não aceita diretamente.

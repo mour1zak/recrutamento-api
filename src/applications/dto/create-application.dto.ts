@@ -10,8 +10,8 @@ export class CreateApplicationDto {
 
   // Validado no Service (não só pela FK): o documento precisa pertencer
   // a quem está se candidatando (`resumeDocument.ownerId === candidateId`,
-  // pendência registrada em CONDICOES-ENTRADA-FASE2.md desde a Fase 1 —
-  // não é enforçável só por constraint de banco).
+  // pendência registrada desde a Fase 1 — não é enforçável só por
+  // constraint de banco).
   @ApiPropertyOptional({ description: 'ID de um Document (currículo) já enviado por este candidato. Precisa pertencer a quem está se candidatando.' })
   @IsOptional()
   @IsInt()

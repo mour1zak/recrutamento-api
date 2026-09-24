@@ -7,7 +7,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
-// Achado Qwen rodada 15 (ressalva 1, o mais valioso): nenhuma resposta do
+// Achado da revisão técnica (ressalva 1, o mais valioso): nenhuma resposta do
 // documento tinha `schema` — a distinção completo × reduzido, que é a
 // política de PII deste módulo (rodadas 10/11), não aparecia em lugar
 // nenhum. Espelha exatamente `toFullResponse`/`toReducedResponse` de

@@ -1,14 +1,13 @@
 /**
- * Fonte única do catálogo de permissões do RBAC dinâmico (CE-2,
- * CONDICOES-ENTRADA-FASE2.md). Usado tanto pelo seed (prisma/seed.ts)
- * quanto pelos decorators/guards de autorização — nunca duplicar esta
- * lista em outro lugar (lição da auditoria do refeitorio-api, §7.1 de
- * FASE-1-MODELAGEM.md: fórmula de negócio em dois lugares diverge em
- * silêncio).
+ * Fonte única do catálogo de permissões do RBAC dinâmico (CE-2). Usado
+ * tanto pelo seed (prisma/seed.ts) quanto pelos decorators/guards de
+ * autorização — nunca duplicar esta lista em outro lugar (lição da
+ * auditoria do refeitorio-api: fórmula de negócio em dois lugares diverge
+ * em silêncio).
  *
- * Catálogo e distribuição por papel definidos pelo DeepSeek em
- * PARECER-DEEPSEEK-FASE1.md §2. A soma de ADMIN foi corrigida aqui: o
- * parecer dizia "todas as 28" mas também listava 4 exceções (ações que só
+ * Catálogo e distribuição por papel definidos na especificação de negócio
+ * da Fase 1. A soma de ADMIN foi corrigida aqui: a especificação original
+ * dizia "todas as 28" mas também listava 4 exceções (ações que só
  * fazem sentido para CANDIDATE) — a versão consistente é 28 - 4 = 24, não
  * 28.
  */
@@ -57,8 +56,8 @@ export const PERMISSIONS = {
   ROLE_MANAGE: 'role:manage',
   // Reservada: não existe endpoint nem entidade ApiKey ainda (decisão CE-1
   // mantém a chave única via .env). Fica no catálogo para o caminho de
-  // evolução descrito em FEEDBACKS-MELHORIA.md #6 — achado Qwen rodada 4
-  // (R12), sem uso concedido a nenhum papel por enquanto.
+  // evolução futura — achado da revisão técnica (R12), sem uso concedido
+  // a nenhum papel por enquanto.
   APIKEY_MANAGE: 'apikey:manage',
 } as const;
 
@@ -99,7 +98,7 @@ export const RECRUITER_PERMISSIONS: PermissionKey[] = [
 ];
 
 // ADMIN = todo o catálogo, exceto as ações exclusivas de candidato (papel
-// puramente operacional/gestão — decisão da Fase 1, pergunta 1 do DeepSeek).
+// puramente operacional/gestão — decisão da Fase 1, pergunta 1 da especificação de negócio).
 export const ADMIN_PERMISSIONS: PermissionKey[] = Object.values(PERMISSIONS).filter(
   (key) => !CANDIDATE_ONLY_KEYS.includes(key),
 );

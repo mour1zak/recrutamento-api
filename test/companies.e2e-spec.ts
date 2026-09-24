@@ -11,12 +11,12 @@ loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
  * Primeiro módulo de domínio além de Auth/Users. Cobre, além do CRUD:
  * a regra de permissão (só ADMIN tem `company:*` fora de `read`), o 409
  * de CNPJ duplicado com o novo formato estruturado ({reason}), o ciclo
- * deactivate/reactivate com os 404 específicos definidos pelo DeepSeek
+ * deactivate/reactivate com os 404 específicos definidos na especificação de negócio
  * (diferente de User: aqui repetir a operação é erro, não idempotente), e
  * os dois cenários reais de CEP (achado #9 do enunciado — integração
  * externa funcionando e falhando de forma controlada) contra o ViaCEP de
  * verdade, sem mock: um CEP válido conhecido (enriquece o endereço) e um
- * inexistente — que, a partir da rodada 11 (achado Qwen N1), REJEITA a
+ * inexistente — que, depois de uma correção (achado da revisão técnica N1), REJEITA a
  * operação com `400` em vez de criar com endereço em branco (só falha de
  * REDE faz isso; CEP explicitamente inválido é erro de quem enviou).
  */
@@ -72,9 +72,9 @@ describe('Companies (e2e)', () => {
       .expect(400);
   });
 
-  // Achado Qwen rodada 10 (ressalva 5): esta asserção era estrita
+  // Achado da revisão técnica (ressalva 5): esta asserção era estrita
   // (`city` precisava ser exatamente "São Paulo"), dependendo do ViaCEP
-  // real responder dentro do timeout — medido pelo Qwen: 2 falhas em ~9
+  // real responder dentro do timeout — medido na revisão técnica: 2 falhas em ~9
   // execuções completas da suíte, latência de ~1.1s contra timeout de 3s
   // com specs rodando em paralelo. Como `CepService` engole qualquer
   // falha e devolve `null`, uma instabilidade de rede aparecia como
@@ -95,13 +95,13 @@ describe('Companies (e2e)', () => {
     expect(res.body.city === null || typeof res.body.city === 'string').toBe(true);
   });
 
-  // Achado Qwen rodada 11 (N1): antes desta correção, um CEP explicitamente
+  // Achado da revisão técnica (N1): antes desta correção, um CEP explicitamente
   // inválido (o provedor confirma que não existe) e uma falha de REDE
   // recebiam o mesmo tratamento ("cria assim mesmo, endereço em branco") —
   // o que permitia, num UPDATE, gravar um `cep` novo com o endereço ANTIGO
-  // (achado que o próprio Qwen encontrou na correção da ressalva 1 da
-  // rodada 10). Agora só falha de rede não bloqueia; CEP inválido rejeita.
-  it('POST /companies com CEP inexistente (real, sem mock) -> 400, rejeitado (achado Qwen rodada 11, N1)', async () => {
+  // (achado que a própria revisão técnica encontrou na correção da ressalva 1
+  // anterior). Agora só falha de rede não bloqueia; CEP inválido rejeita.
+  it('POST /companies com CEP inexistente (real, sem mock) -> 400, rejeitado (achado da revisão técnica, N1)', async () => {
     const res = await request(app.getHttpServer())
       .post('/companies')
       .set('x-api-key', apiKey)
@@ -117,7 +117,7 @@ describe('Companies (e2e)', () => {
     let companyId: number;
 
     it('POST /companies com CNPJ -> 201', async () => {
-      // Achado Qwen rodada 11 (N1): `00000-000` era usado aqui só como CEP
+      // Achado da revisão técnica (N1): `00000-000` era usado aqui só como CEP
       // "descartável" (o foco do teste é CNPJ, não endereço) — mas agora
       // um CEP inexistente rejeita a criação (`400`), então precisa de um
       // CEP real e resolvível, mesmo não sendo o foco do teste.
@@ -184,7 +184,7 @@ describe('Companies (e2e)', () => {
         .expect(404);
     });
 
-    it('PATCH /companies/:id/deactivate de novo -> 409 com reason "company_already_inactive" (achado Qwen rodada 8: era 404, mas o recurso existe)', async () => {
+    it('PATCH /companies/:id/deactivate de novo -> 409 com reason "company_already_inactive" (achado da revisão técnica: era 404, mas o recurso existe)', async () => {
       const res = await request(app.getHttpServer())
         .patch(`/companies/${companyId}/deactivate`)
         .set('x-api-key', apiKey)
@@ -202,7 +202,7 @@ describe('Companies (e2e)', () => {
       expect(res.body.isActive).toBe(true);
     });
 
-    it('PATCH /companies/:id/reactivate de novo -> 409 com reason "company_already_active" (achado Qwen rodada 8: era 404, mas o recurso existe)', async () => {
+    it('PATCH /companies/:id/reactivate de novo -> 409 com reason "company_already_active" (achado da revisão técnica: era 404, mas o recurso existe)', async () => {
       const res = await request(app.getHttpServer())
         .patch(`/companies/${companyId}/reactivate`)
         .set('x-api-key', apiKey)

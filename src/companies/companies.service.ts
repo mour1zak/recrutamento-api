@@ -24,11 +24,11 @@ export class CompaniesService {
   ) {}
 
   async create(dto: CreateCompanyDto) {
-    // Achado Qwen rodada 11 (N1): CEP explicitamente inválido (provedor
+    // Achado da revisão técnica (N1): CEP explicitamente inválido (provedor
     // confirma que não existe) é erro de quem enviou, não falha
-    // transitória — rejeita a criação (PARECER-DEEPSEEK-FASE1.md §5,
-    // cenário 2). Só uma falha de REDE/timeout ("unavailable") não bloqueia
-    // a operação (cenários 4-7 do mesmo parecer).
+    // transitória — rejeita a criação (especificação de negócio, cenário 2).
+    // Só uma falha de REDE/timeout ("unavailable") não bloqueia
+    // a operação (cenários 4-7 da mesma especificação).
     const resolution = await this.cepService.resolve(dto.cep);
     if (resolution.status === 'invalid') {
       throw cepInvalidError();
@@ -49,7 +49,7 @@ export class CompaniesService {
         state: resolution.state,
       },
     });
-    // Achado Qwen rodada 11: o "+ aviso" que o parecer da Fase 1 já pedia
+    // Achado da revisão técnica: o "+ aviso" que o parecer da Fase 1 já pedia
     // pros cenários de indisponibilidade nunca tinha sido implementado —
     // campo extra na resposta, não persistido, só pra sinalizar ao
     // cliente que o endereço pode estar incompleto por falha externa.
@@ -67,7 +67,7 @@ export class CompaniesService {
   async update(id: number, dto: UpdateCompanyDto) {
     await this.findActiveOrThrow(id);
 
-    // Achado Qwen rodada 11 (N1): a correção da rodada 10 ("preserva
+    // Achado da revisão técnica (N1): a correção anterior ("preserva
     // endereço se a consulta não resolveu nada") tratava CEP inválido e
     // falha de rede da mesma forma — permitindo salvar um `cep` novo com o
     // `street/city/state` do endereço ANTIGO, um par inconsistente. Agora
@@ -97,7 +97,7 @@ export class CompaniesService {
       throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
     }
     if (!company.isActive) {
-      // Achado Qwen rodada 8 (ressalva 6): o recurso EXISTE — o problema
+      // Achado da revisão técnica (ressalva 6): o recurso EXISTE — o problema
       // é de estado, não de existência. Pela política do próprio projeto
       // (404 = não existe/é de terceiro; 409 = regra de negócio), isto é
       // 409, não 404. Como `404` era o único lugar em que o `reason`
@@ -107,7 +107,7 @@ export class CompaniesService {
       throw new ConflictException(errorBody(409, 'company_already_inactive', 'Empresa já está inativa.'));
     }
 
-    // Achado Qwen rodada 3 (C5): desativar empresa é soft-delete, nunca
+    // Achado da revisão técnica (C5): desativar empresa é soft-delete, nunca
     // DELETE físico — preserva a evidência de quem foi recrutador dela.
     // Não cascateia pra vagas/usuários (decisão registrada no README):
     // Job.companyId e User.companyId continuam apontando pra empresa
@@ -122,7 +122,7 @@ export class CompaniesService {
       throw new NotFoundException(errorBody(404, 'company_not_found', 'Empresa não encontrada.'));
     }
     if (company.isActive) {
-      // Mesmo raciocínio do `deactivate()` acima (achado Qwen rodada 8,
+      // Mesmo raciocínio do `deactivate()` acima (achado da revisão técnica,
       // ressalva 6): recurso existe, é conflito de estado -> 409.
       throw new ConflictException(errorBody(409, 'company_already_active', 'Empresa já está ativa.'));
     }

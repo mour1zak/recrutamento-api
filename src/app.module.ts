@@ -27,7 +27,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js
       isGlobal: true,
       envFilePath: process.env.NODE_ENV === 'test' ? '.env.test' : '.env',
       // Falha o boot se alguém subir com os placeholders do .env.example
-      // (achado crítico Qwen rodada 4, C1 — bypass total de autenticação
+      // (achado crítico da revisão técnica, C1 — bypass total de autenticação
       // com o segredo público documentado no repositório).
       validationSchema: envValidationSchema,
     }),
@@ -49,7 +49,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js
   controllers: [AppController],
   providers: [
     AppService,
-    // Ordem importa e é a correção do achado crítico C2 (rodada 4): guards
+    // Ordem importa e é a correção do achado crítico C2: guards
     // globais (APP_GUARD) rodam nesta ordem, antes de qualquer guard de
     // controller/rota. ApiKeyGuard (cliente conhecido) → JwtAuthGuard
     // (quem é o usuário, isento via @Public()) → PermissionsGuard (o papel
@@ -60,7 +60,7 @@ import { LoggingInterceptor } from './common/interceptors/logging.interceptor.js
     { provide: APP_GUARD, useClass: ApiKeyGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: PermissionsGuard },
-    // Filtro único (rodada 6, achado N1-d/ressalva 7): unifica o que antes
+    // Filtro único (achado N1-d/ressalva 7): unifica o que antes
     // eram dois APP_FILTER separados, para eliminar qualquer ambiguidade
     // sobre qual filtro o Nest escolhe primeiro entre múltiplos globais.
     // Trata Prisma, conflito de transação (Serializable) e 401 — delega o

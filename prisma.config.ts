@@ -14,8 +14,8 @@ export default defineConfig({
   },
   datasource: {
     // `process.env` direto com fallback (não o helper `env()`, que é
-    // estrito e lança se a variável não existir): corrige achado Qwen
-    // rodada 6 (N5-a). `prisma generate` não toca o banco — só lê o
+    // estrito e lança se a variável não existir): corrige achado da revisão
+    // técnica (N5-a). `prisma generate` não toca o banco — só lê o
     // schema — e não deveria exigir `DATABASE_URL` de verdade. Só
     // comandos que realmente conectam (`migrate`, `db push`...) precisam
     // de um valor real, e falham nesse momento com um erro de conexão

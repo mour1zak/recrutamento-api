@@ -14,7 +14,7 @@ import { PERMISSIONS, SYSTEM_ROLES } from '../src/common/constants/permissions.c
 loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
 /**
- * Cobre os cenários exigidos pela auditoria Qwen rodada 4 (C3): 401 sem API
+ * Cobre os cenários exigidos pela auditoria técnica (C3): 401 sem API
  * key, 401 sem JWT, 201 register, 401 login com senha errada, 409 email
  * duplicado — e o teste de permissão pedido em C2 (rota com @Permissions()
  * dando 2xx para quem tem a key e 403 para quem não tem).
@@ -136,11 +136,11 @@ describe('Auth (e2e)', () => {
   });
 
   /**
-   * Cobre o achado crítico Qwen rodada 5 (N1): o último ADMIN conseguia
+   * Cobre o achado crítico da revisão técnica (N1): o último ADMIN conseguia
    * se autodesativar (ou ser desativado, ficando o sistema sem
    * administrador), sem nenhuma rota de reversão pela API.
    */
-  describe('trava de último administrador (N1, rodada 5)', () => {
+  describe('trava de último administrador (N1)', () => {
     it('ADMIN tenta desativar a própria conta -> 409', async () => {
       const login = await request(app.getHttpServer())
         .post('/auth/login')
@@ -158,8 +158,8 @@ describe('Auth (e2e)', () => {
     it('desativar o único ADMIN ativo restante -> 409, mesmo vindo de outro papel com user:manage', async () => {
       const prisma = app.get(PrismaService);
 
-      // Simula o estado que o Nível B (edição de permissões em runtime,
-      // FEEDBACKS-MELHORIA.md) poderia produzir: um papel diferente de
+      // Simula o estado que o Nível B (edição de permissões em runtime)
+      // poderia produzir: um papel diferente de
       // ADMIN ganhando `user:manage`. Isso prova que a trava é do NÚMERO
       // de admins ativos, não "só ADMIN nunca desativa outro ADMIN".
       const [adminRole, candidateRole, userManagePermission] = await Promise.all([
@@ -200,7 +200,7 @@ describe('Auth (e2e)', () => {
     });
 
     /**
-     * Achado crítico Qwen rodada 6 (N1-a): a trava de "último admin" usa
+     * Achado crítico da revisão técnica (N1-a): a trava de "último admin" usa
      * uma transação `Serializable`, e duas transações concorrentes que
      * conflitam nela produziam um `500` cru em 67% das corridas medidas
      * (o conflito de serialização do driver adapter não tinha o formato

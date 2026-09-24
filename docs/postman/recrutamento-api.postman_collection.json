@@ -641,7 +641,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('409 já inativa (achado Qwen rodada 8: era 404)', () => pm.response.to.have.status(409));",
+                  "pm.test('409 já inativa (achado da revisão técnica: era 404)', () => pm.response.to.have.status(409));",
                   "pm.test(\"reason 'company_already_inactive'\", () => pm.expect(pm.response.json().reason).to.eql('company_already_inactive'));"
                 ]
               }
@@ -685,7 +685,7 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('409 já ativa (achado Qwen rodada 8: era 404)', () => pm.response.to.have.status(409));",
+                  "pm.test('409 já ativa (achado da revisão técnica: era 404)', () => pm.response.to.have.status(409));",
                   "pm.test(\"reason 'company_already_active'\", () => pm.expect(pm.response.json().reason).to.eql('company_already_active'));"
                 ]
               }

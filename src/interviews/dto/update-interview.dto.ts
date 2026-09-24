@@ -15,7 +15,7 @@ export class UpdateInterviewDto {
   feedback?: string;
 
   // Só usado quando `status: "RESCHEDULED"` (vira o `scheduledAt` da NOVA
-  // entrevista criada) — contrato definido pelo DeepSeek (Fase 2,
+  // entrevista criada) — contrato definido na especificação de negócio (Fase 2,
   // mapa de endpoints §5).
   @ApiPropertyOptional({ description: 'Nova data/hora — obrigatório junto de `status: "RESCHEDULED"`; vira o `scheduledAt` da nova entrevista criada.', example: '2026-10-05T14:00:00.000Z' })
   @IsOptional()

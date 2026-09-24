@@ -11,7 +11,7 @@ import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import { ApplicationStatus } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
-// Achado Qwen rodada 15 (ressalva 1): espelha `toFullResponse`/
+// Achado da revisão técnica (ressalva 1): espelha `toFullResponse`/
 // `toReducedResponse` de `applications.service.ts` — a distinção
 // completo × reduzido é a política de PII deste módulo (K5/K6, rodada
 // 12) e não aparecia em nenhum schema publicado.

@@ -18,13 +18,13 @@ const USER_SUMMARY_SELECT = {
 } as const;
 
 const KNOWN_PERMISSION_KEYS = new Set<string>(Object.values(PERMISSIONS));
-// Achado Qwen rodada 6 (ressalva 10): sem isso, uma key órfã no banco loga
+// Achado da revisão técnica (ressalva 10): sem isso, uma key órfã no banco loga
 // um aviso a CADA request autenticado (toAuthenticatedUser roda em todo
 // findAuthenticatedById) — um aviso por processo é suficiente.
 const WARNED_ORPHAN_KEYS = new Set<string>();
 
 // select nomeado, sem password — mesmo padrão validado na auditoria do
-// DEVCONNECT (FASE-1-MODELAGEM.md §7.2): nunca depender de lembrar de
+// DEVCONNECT: nunca depender de lembrar de
 // excluir campos sensíveis em cada query manualmente.
 const authUserSelect = {
   id: true,
@@ -84,7 +84,7 @@ export class UsersService {
       throw new Error('Papel CANDIDATE não encontrado — o seed foi executado?');
     }
 
-    // Sem checagem prévia de "email já existe" (achado Qwen rodada 4, R2):
+    // Sem checagem prévia de "email já existe" (achado da revisão técnica, R2):
     // aquele padrão era check-then-create, com a mesma janela de corrida
     // do C4. O `@@unique(email)` do banco já garante a regra; deixamos o
     // Postgres recusar e o PrismaExceptionFilter global traduz o P2002
@@ -103,18 +103,18 @@ export class UsersService {
   }
 
   /**
-   * Única forma suportada de "remover" um usuário (R-C4.1/2,
-   * CONDICOES-ENTRADA-FASE2.md) — nunca DELETE físico. Revoga também todos
+   * Única forma suportada de "remover" um usuário (R-C4.1/2)
+   * — nunca DELETE físico. Revoga também todos
    * os refresh tokens ativos, para que uma sessão já aberta não continue
    * renovável depois da desativação.
    *
-   * Corrige achado crítico Qwen rodada 5 (N1): o último ADMIN conseguia
+   * Corrige achado crítico da revisão técnica (N1): o último ADMIN conseguia
    * desativar a si mesmo (ou outro admin), zerando os administradores
    * ativos sem nenhuma rota de reversão — estado irrecuperável pela API.
    * Duas travas: (1) ninguém desativa a própria conta; (2) não é permitido
    * ficar com zero ADMIN ativo.
    *
-   * CORREÇÃO DE DESCRIÇÃO (achado Qwen rodada 6, N1-d): a versão anterior
+   * CORREÇÃO DE DESCRIÇÃO (achado da revisão técnica, N1-d): a versão anterior
    * deste comentário afirmava que o conflito de duas transações
    * concorrentes viraria `P2034`, mapeado para `409` pelo filtro. **Isso
    * era falso.** Medido por execução: com driver adapter (obrigatório no
@@ -128,7 +128,7 @@ export class UsersService {
    *
    * DECISÃO DE DESENHO (N1-b): mantivemos `Serializable` em vez de trocar
    * para o padrão de `UPDATE` condicional + `count` usado no `refresh()`
-   * (C4, rodada 4) — que teria o mesmo efeito sem abortar transação nenhuma.
+   * (C4) — que teria o mesmo efeito sem abortar transação nenhuma.
    * `Serializable` foi mantido porque, com o `GlobalExceptionFilter`
    * corrigido, o custo do abort (a transação perdedora relança a
    * exceção, que agora vira `409` corretamente) é aceitável para uma
@@ -178,7 +178,7 @@ export class UsersService {
   }
 
   /**
-   * Operação inversa de `deactivate()` — achado Qwen rodada 6 (N1-c):
+   * Operação inversa de `deactivate()` — achado da revisão técnica (N1-c):
    * antes desta rota, desativar um usuário era irreversível pela API. Sem
    * trava especial: reativar não corre risco de "zerar admins" (é o
    * caminho oposto), e não há problema em reativar alguém que já está
@@ -193,7 +193,7 @@ export class UsersService {
     return this.prisma.user.update({ where: { id: targetId }, data: { isActive: true } });
   }
 
-  // Rotas novas da Fase 4 (mapa DeepSeek §7) — usam o formato de erro
+  // Rotas novas da Fase 4 (mapa de endpoints §7) — usam o formato de erro
   // estruturado (`errorBody`), diferente de `deactivate`/`reactivate`
   // acima: aquelas duas já passaram por auditoria fechada com o formato
   // antigo (decisão registrada: não reabrir escopo já fechado); estas
@@ -223,7 +223,7 @@ export class UsersService {
   }
 
   async updateCompany(id: number, companyId: number | null | undefined) {
-    // Achado CRÍTICO Qwen rodada 12 (K4): `@IsOptional()` no DTO trata
+    // Achado CRÍTICO da revisão técnica (K4): `@IsOptional()` no DTO trata
     // `null` e `undefined` como a mesma coisa ("pula a validação
     // seguinte") — de propósito, pra deixar `null` (desvincular) passar
     // sem exigir `@IsInt()`. Só que isso também deixa `undefined` (campo
@@ -245,7 +245,7 @@ export class UsersService {
     if (!user) {
       throw new NotFoundException(errorBody(404, 'user_not_found', 'Usuário não encontrado.'));
     }
-    // Regra do DeepSeek (mapa §7): só RECRUITER tem empresa própria —
+    // Regra da especificação de negócio (mapa §7): só RECRUITER tem empresa própria —
     // CANDIDATE/ADMIN com `companyId` não fazem sentido no resto do
     // domínio (Jobs/Applications decidem escopo por `companyId` só pra
     // RECRUITER).
@@ -274,7 +274,7 @@ export class UsersService {
       return this.prisma.user.findUniqueOrThrow({ where: { id }, select: USER_SUMMARY_SELECT });
     }
 
-    // Invariante do DeepSeek (mapa §7, exemplo dado): RECRUITER com vagas
+    // Invariante da especificação de negócio (mapa §7, exemplo dado): RECRUITER com vagas
     // ainda em andamento não pode virar outro papel sem deixar essas
     // vagas "órfãs" de dono operacional.
     if (user.role.name === SYSTEM_ROLES.RECRUITER && newRole.name !== SYSTEM_ROLES.RECRUITER) {
@@ -287,10 +287,10 @@ export class UsersService {
         );
       }
     }
-    // Achado CRÍTICO Qwen rodada 12 (K3): a versão anterior fazia a
+    // Achado CRÍTICO da revisão técnica (K3): a versão anterior fazia a
     // contagem de admins ativos e a escrita como dois passos separados,
     // fora de transação — a mesma corrida que o C4 (Fase 2) e o C2 dos
-    // Jobs (rodada 8) já tinham provado quebrar. Medido: isolando
+    // Jobs já tinham provado quebrar. Medido: isolando
     // exatamente 2 admins ativos e disparando duas `PATCH .../role`
     // simultâneas tirando o papel ADMIN de cada um, 10 em 12 corridas
     // zeraram os admins ativos — as duas contagens aconteciam antes de
@@ -329,7 +329,7 @@ export class UsersService {
       roleId: user.roleId,
       roleName: user.role.name,
       companyId: user.companyId,
-      // Achado Qwen rodada 5 (N13): antes era um `as PermissionKey` cego —
+      // Achado da revisão técnica (N13): antes era um `as PermissionKey` cego —
       // uma key gravada no banco fora do catálogo (seed divergente, ou um
       // futuro Nível B editando permissões livremente) entraria em
       // `user.permissions` sem nenhum aviso. Uma key órfã aqui é inofensiva

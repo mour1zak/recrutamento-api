@@ -3,7 +3,7 @@ import { ConflictException } from '@nestjs/common';
 import { RolesService } from './roles.service.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 
-// Achado CRÍTICO Qwen rodada 12 (K2): a versão anterior contava "outros
+// Achado CRÍTICO da revisão técnica (K2): a versão anterior contava "outros
 // papéis com role:manage" FORA da transação de escrita — duas
 // requisições concorrentes em papéis diferentes podiam ambas ver "sobra
 // alguém" e ambas escrever, zerando `role:manage` do sistema (medido:

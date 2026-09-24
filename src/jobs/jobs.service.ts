@@ -12,9 +12,9 @@ import { UpdateJobStatusDto } from './dto/update-job-status.dto.js';
 import { ListJobsQueryDto } from './dto/list-jobs-query.dto.js';
 import { ListMineJobsQueryDto } from './dto/list-mine-jobs-query.dto.js';
 
-// Transições válidas de status (Fase 1, PARECER-DEEPSEEK-FASE1.md §3,
-// fluxo expandido, mais correções da rodada 8). CLOSED/CANCELED são
-// terminais — nenhuma saída. Achado Qwen rodada 8 (R4): `OPEN -> CLOSED`
+// Transições válidas de status (Fase 1, especificação de negócio §3,
+// fluxo expandido, mais correções posteriores). CLOSED/CANCELED são
+// terminais — nenhuma saída. Achado da revisão técnica (R4): `OPEN -> CLOSED`
 // tinha sido removido da tabela sem registro, contradizendo o comentário
 // do próprio enum em schema.prisma ("CLOSED: encerrada definitivamente
 // SEM preencher todas as vagas") — sem essa transição, CLOSED só era
@@ -43,7 +43,7 @@ const PUBLIC_JOB_SELECT = {
   createdAt: true,
   updatedAt: true,
   closedAt: true,
-  // Achado Qwen rodada 8 (R1): antes, `GET /jobs` não trazia o nome da
+  // Achado da revisão técnica (R1): antes, `GET /jobs` não trazia o nome da
   // empresa — o candidato via só `companyId` cru, sem rota pra resolver
   // isso. `R5`: `createdById` (id interno de User, enumerável) e
   // `filledCount` (contador de contratações) não pertencem a uma vitrine
@@ -57,7 +57,7 @@ const SCOPED_JOB_INCLUDE = {
 } as const;
 
 // Usado só internamente em `findOne()` — precisa de `isActive` pra decidir
-// visibilidade pública (achado Qwen rodada 9, Q3/N8), mas o campo nunca
+// visibilidade pública (achado da revisão técnica, Q3/N8), mas o campo nunca
 // sai na resposta (`stripCompanyIsActive` remove antes de devolver).
 const SCOPED_JOB_INCLUDE_WITH_COMPANY_STATUS = {
   company: { select: { id: true, name: true, isActive: true } },
@@ -74,7 +74,7 @@ function jobNotFound() {
   return new NotFoundException(errorBody(404, 'job_not_found', 'Vaga não encontrada.'));
 }
 
-// Achado crítico Qwen rodada 8 (C1): antes desta correção, "está dentro
+// Achado crítico da revisão técnica (C1): antes desta correção, "está dentro
 // do escopo" tinha TRÊS respostas diferentes no mesmo arquivo —
 // `isInScope()` e `resolveCompanyIdForCreate()` tratavam
 // `companyId === null` como "acesso a qualquer empresa" (achando que só
@@ -87,7 +87,7 @@ function hasJobScope(job: { companyId: number }, user: AuthenticatedUser): boole
   return isAdmin(user) || user.companyId === job.companyId;
 }
 
-// Achado Qwen rodada 8 (R3): `%`/`_`/`\` no `search` não eram escapados
+// Achado da revisão técnica (R3): `%`/`_`/`\` no `search` não eram escapados
 // antes do `contains` — `search=%25` (um `%` urlencoded) casava
 // qualquer título, virando uma varredura completa disfarçada de busca.
 function escapeLikeWildcards(value: string): string {
@@ -118,7 +118,7 @@ export class JobsService {
 
   private async resolveCompanyIdForCreate(dtoCompanyId: number | undefined, currentUser: AuthenticatedUser): Promise<number> {
     if (!isAdmin(currentUser)) {
-      // Achado crítico Qwen rodada 8 (C1): esta checagem não existia.
+      // Achado crítico da revisão técnica (C1): esta checagem não existia.
       // Sem ela, qualquer usuário com `job:create` e `companyId: null`
       // (o RECRUITER do seed, antes desta rodada) caía direto no ramo
       // "ADMIN" abaixo e criava vaga em qualquer empresa ativa — provado
@@ -143,12 +143,12 @@ export class JobsService {
     return this.assertCompanyActiveOrThrow(dtoCompanyId);
   }
 
-  // Achado crítico Qwen rodada 8 (C3): antes, só o ramo ADMIN checava
+  // Achado crítico da revisão técnica (C3): antes, só o ramo ADMIN checava
   // `isActive` da empresa — um RECRUITER de empresa desativada continuava
   // criando/editando/publicando vagas normalmente, que apareciam na
   // vitrine pública, enquanto `GET /companies/:id` já dizia "não
   // encontrada" pra essa mesma empresa. Decisão explícita (uma das duas
-  // que o Qwen ofereceu): checar `isActive` em toda ESCRITA de vaga
+  // que a revisão técnica ofereceu): checar `isActive` em toda ESCRITA de vaga
   // (create/update/updateStatus) — leituras de vagas já `OPEN` não são
   // afetadas retroativamente (desativar uma empresa não esconde vagas
   // já publicadas, só impede novas ações).
@@ -162,7 +162,7 @@ export class JobsService {
   async findPublicList(query: ListJobsQueryDto) {
     const where: Prisma.JobWhereInput = {
       status: JobStatus.OPEN,
-      // Achado Qwen rodada 9 (Q3/N8): sem isso, a vitrine pública
+      // Achado da revisão técnica (Q3/N8): sem isso, a vitrine pública
       // anunciava vagas de empresas desativadas — o candidato via o card,
       // clicava, e `GET /companies/:id` já respondia "não encontrada" pra
       // essa mesma empresa. Não afeta o dono (RECRUITER/ADMIN continuam
@@ -207,7 +207,7 @@ export class JobsService {
     if (!job) {
       throw jobNotFound();
     }
-    // Achado Qwen rodada 9 (Q3/N8): vaga OPEN só é publicamente visível
+    // Achado da revisão técnica (Q3/N8): vaga OPEN só é publicamente visível
     // se a empresa dona também estiver ativa — antes, uma vaga OPEN de
     // empresa desativada continuava aparecendo pra qualquer um (mesmo
     // bug da vitrine, aqui na rota de detalhe). O dono (job:read:any +
@@ -229,7 +229,7 @@ export class JobsService {
     const job = await this.findScopedOrThrow(id, currentUser);
     const nextVacancies = dto.vacancies ?? job.vacancies;
 
-    // Achado crítico Qwen rodada 8 (C2, mesma causa raiz aplicada aqui
+    // Achado crítico da revisão técnica (C2, mesma causa raiz aplicada aqui
     // por precaução): a versão anterior lia `job.filledCount` e escrevia
     // em passos separados — mesma forma que o C2 provou quebrar em
     // `updateStatus()`. `updateMany` condicionado ao estado que
@@ -248,7 +248,7 @@ export class JobsService {
       },
     });
     if (result.count === 0) {
-      // Achado Qwen rodada 9 (N3): `count === 0` aqui tinha duas causas
+      // Achado da revisão técnica (N3): `count === 0` aqui tinha duas causas
       // possíveis (vaga saiu de escopo entre a leitura e a escrita, ou a
       // invariante de fato foi violada) mapeadas pro mesmo `reason` sem
       // distinção, e a mensagem tinha perdido os números concretos que a
@@ -285,7 +285,7 @@ export class JobsService {
       );
     }
 
-    // Achado crítico Qwen rodada 8 (C2): medido, 13 em 25 corridas de
+    // Achado crítico da revisão técnica (C2): medido, 13 em 25 corridas de
     // duas `PATCH .../status` simultâneas terminavam com um `CANCELED`
     // (terminal) sobrescrito por `PAUSED` — leitura-então-escrita em
     // passos separados, mesmo padrão que já causou o C4 (Fase 2, refresh
@@ -299,7 +299,7 @@ export class JobsService {
       data: { status: dto.status },
     });
     if (result.count === 0) {
-      // Achado Qwen rodada 9 (N4): a mensagem antiga dizia só "tente
+      // Achado da revisão técnica (N4): a mensagem antiga dizia só "tente
       // novamente" — um retry ingênuo reenviando o mesmo `status` bate
       // numa transição que já não é mais válida a partir do estado atual
       // (ex.: pediu OPEN→PAUSED, chegou tarde, o status virou CANCELED —

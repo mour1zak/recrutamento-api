@@ -29,11 +29,11 @@ export class InterviewsService {
       where: { id: applicationId },
       select: { id: true, status: true, job: { select: { companyId: true } } },
     });
-    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()`.
+    // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()`.
     if (!application || (!isAdmin(currentUser) && (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw applicationNotFound();
     }
-    // Contrato do DeepSeek (Fase 2, mapa §5): só se agenda entrevista
+    // Contrato da especificação de negócio (Fase 2, mapa §5): só se agenda entrevista
     // quando a candidatura já está na etapa de entrevista — evita marcar
     // entrevista pra quem ainda está em triagem (UNDER_REVIEW) ou já foi
     // rejeitado/contratado.
@@ -50,7 +50,7 @@ export class InterviewsService {
 
   async findForApplication(applicationId: number, currentUser: AuthenticatedUser) {
     const application = await this.prisma.application.findUnique({ where: { id: applicationId }, select: { job: { select: { companyId: true } } } });
-    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()`.
+    // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()`.
     if (!application || (!isAdmin(currentUser) && (application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw applicationNotFound();
     }
@@ -67,7 +67,7 @@ export class InterviewsService {
     const interview = await this.findScopedOrThrow(id, currentUser);
 
     // Só SCHEDULED tem saída — as outras 4 são terminais (achado registrado
-    // no pacote DeepSeek: "interview:update em entrevista terminal" era
+    // na especificação de negócio: "interview:update em entrevista terminal" era
     // uma das decisões em aberto; optamos por 409, não permitir corrigir
     // feedback depois de encerrada, mesma postura de estado terminal já
     // usada em Jobs/Applications).
@@ -93,7 +93,7 @@ export class InterviewsService {
     return { created: false as const, interview: updated };
   }
 
-  // Contrato de RESCHEDULED (DeepSeek, Fase 2 §5): cria uma NOVA entrevista
+  // Contrato de RESCHEDULED (especificação de negócio, Fase 2 §5): cria uma NOVA entrevista
   // em vez de editar a original in-place — preserva o histórico de
   // reagendamentos (decisão de negócio, não técnica). `previousInterviewId`
   // é `@unique` no schema: cada entrevista só pode ser reagendada uma vez
@@ -124,7 +124,7 @@ export class InterviewsService {
 
   private async findScopedOrThrow(id: number, currentUser: AuthenticatedUser) {
     const interview = await this.prisma.interview.findUnique({ where: { id }, include: INTERVIEW_INCLUDE });
-    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()`.
+    // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()`.
     if (!interview || (!isAdmin(currentUser) && (interview.application.job.companyId !== currentUser.companyId || !(await isCompanyOperable(this.prisma, currentUser.companyId))))) {
       throw interviewNotFound();
     }

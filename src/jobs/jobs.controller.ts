@@ -13,7 +13,7 @@ import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import { JobStatus } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
-// Achado Qwen rodada 15 (ressalva 1): nenhuma das 175 respostas do
+// Achado da revisão técnica (ressalva 1): nenhuma das 175 respostas do
 // documento tinha `schema` — o envelope de paginação e a distinção entre
 // campos de `PUBLIC_JOB_SELECT` (vitrine) e `SCOPED_JOB_INCLUDE`
 // (autenticado, com `filledCount`/`companyId`/`createdById`) não
@@ -143,8 +143,8 @@ export class JobsController {
     return this.jobsService.updateStatus(id, dto, user);
   }
 
-  // DELETE /jobs/:id deliberadamente não exposto (decisão registrada em
-  // PARECER-DEEPSEEK-FASE2-ENDPOINTS.md §2): soft-delete via
+  // DELETE /jobs/:id deliberadamente não exposto (decisão da especificação
+  // de negócio): soft-delete via
   // PATCH /jobs/:id/status {status: "CANCELED"} preserva o histórico de
   // candidaturas/entrevistas/documentos vinculados. `job:delete` fica
   // reservada no catálogo, sem rota.

@@ -17,7 +17,7 @@ function cepInvalidError() {
   return new BadRequestException(errorBody(400, 'cep_nao_encontrado', 'CEP informado não existe.'));
 }
 
-// Achado crítico Qwen rodada 10 (C2): o predicado anterior era
+// Achado crítico da revisão técnica (C2): o predicado anterior era
 // `status !== PENDING` — uma NEGAÇÃO que incluía qualquer status que
 // ninguém tivesse pensado em excluir. `REJECTED` e `WITHDRAWN` caíam
 // nela e destravavam o perfil completo, mesmo não sendo "progresso" (são
@@ -71,7 +71,7 @@ function toFullResponse(profile: {
 }
 
 function toReducedResponse(profile: { user: { id: number; name: string }; headline: string | null; skills: string[] }) {
-  // Payload condicional (Fase 1, Pergunta 2 do DeepSeek): antes de a
+  // Payload condicional (Fase 1, Pergunta 2 da especificação de negócio): antes de a
   // candidatura avançar de PENDING, o recrutador só vê o mínimo pra
   // triagem inicial — nada de telefone/resumo/endereço.
   return { id: profile.user.id, name: profile.user.name, headline: profile.headline, skills: profile.skills };
@@ -96,7 +96,7 @@ export class CandidateProfileService {
   }
 
   async upsertMine(currentUser: AuthenticatedUser, dto: UpdateCandidateProfileDto) {
-    // Achado Qwen rodada 11 (N1): a correção da rodada 10 ("preserva
+    // Achado da revisão técnica (N1): a correção anterior ("preserva
     // endereço se a consulta não resolveu nada") tratava CEP inválido e
     // falha de rede da mesma forma — permitindo salvar um `cep` novo com o
     // `street/city/state` do endereço ANTIGO, um par inconsistente. Agora
@@ -137,7 +137,7 @@ export class CandidateProfileService {
       const response = toFullResponse(profile);
       return addressWarning ? { ...response, addressWarning } : response;
     } catch (error) {
-      // Achado Qwen rodada 10 (P4): `upsert` não é atômico contra outra
+      // Achado da revisão técnica (P4): `upsert` não é atômico contra outra
       // requisição criando a MESMA linha entre a checagem interna do
       // Prisma e a escrita — duas chamadas concorrentes de
       // `PATCH /candidates/me` do mesmo usuário podiam produzir um `409`
@@ -167,7 +167,7 @@ export class CandidateProfileService {
     });
     // Não revela se o `userId` existe mas não é candidato — mesmo 404 de
     // "perfil não encontrado" (política anti-enumeração já usada no
-    // resto do projeto). Achado Qwen rodada 10 (ressalva 3): um perfil de
+    // resto do projeto). Achado da revisão técnica (ressalva 3): um perfil de
     // usuário DESATIVADO continua legível por quem já tem relação
     // (dono/ADMIN/recrutador com candidatura) — decisão consciente, não
     // omissão: histórico de processos em andamento não deve desaparecer
@@ -189,13 +189,13 @@ export class CandidateProfileService {
       return toFullResponse(profile);
     }
 
-    // Achado crítico Qwen rodada 10 (C1): faltava esta checagem. Sem ela,
+    // Achado crítico da revisão técnica (C1): faltava esta checagem. Sem ela,
     // um RECRUITER de empresa DESATIVADA continuava lendo telefone,
-    // resumo e endereço de candidato — a metade de LEITURA do C3 da
-    // rodada 8 (que só corrigiu a metade de ESCRITA em Jobs). O acesso
+    // resumo e endereço de candidato — a metade de LEITURA do C3
+    // (que só corrigiu a metade de ESCRITA em Jobs). O acesso
     // deriva de `Application` histórica, que nunca é apagada — sem esta
     // checagem, o efeito era permanente.
-    // Achado Qwen rodada 11: o predicado (não o lançamento do erro) agora
+    // Achado da revisão técnica: o predicado (não o lançamento do erro) agora
     // é compartilhado com `JobsService` via `isCompanyOperable()` —
     // `Application` (que ganhou módulo próprio nesta rodada) é o terceiro
     // consumidor da mesma pergunta. A checagem `=== null` explícita

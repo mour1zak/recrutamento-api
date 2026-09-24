@@ -12,7 +12,7 @@ loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
 /**
  * Quinto módulo de domínio. `PATCH /interviews/:id` com
- * `status: "RESCHEDULED"` é a rota mais incomum do mapa do DeepSeek: em
+ * `status: "RESCHEDULED"` é a rota mais incomum do mapa de endpoints: em
  * vez de editar a entrevista original, cria uma NOVA (histórico
  * preservado) e devolve `201`, não `200` — testado explicitamente.
  */
@@ -201,7 +201,7 @@ describe('Interviews (e2e)', () => {
       .expect(403);
   });
 
-  // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` em
+  // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()` em
   // `InterviewsService` — recrutador de empresa desativada continuava
   // lendo/escrevendo entrevistas normalmente.
   describe('K5: empresa desativada bloqueia acesso do recrutador a entrevistas', () => {

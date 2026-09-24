@@ -7,8 +7,8 @@ import { HTTP_REQUEST_START } from '../interceptors/logging.interceptor.js';
 
 // Nome real da constraint (ver migration.sql) -> rótulo amigável. Nunca
 // devolver o nome cru do índice pro cliente — isso divulga estrutura
-// interna do banco (achado Qwen rodada 5, N2). Verificado 10/10 exato
-// contra o migration.sql na rodada 6.
+// interna do banco (achado da revisão técnica, N2). Verificado 10/10 exato
+// contra o migration.sql.
 const CONSTRAINT_LABELS: Record<string, string> = {
   User_email_key: 'email',
   app_roles_name_key: 'nome do papel',
@@ -29,7 +29,7 @@ const CONSTRAINT_LABELS: Record<string, string> = {
 // formato de resposta já fechado.
 const CONSTRAINT_REASONS: Record<string, string> = {
   Company_cnpj_key: 'cnpj_duplicado',
-  // Achado Qwen rodada 10 (P4): rede de segurança pro `P2002` de
+  // Achado da revisão técnica (P4): rede de segurança pro `P2002` de
   // `CandidateProfile.userId` — o caminho normal (`upsertMine()`) já
   // trata a corrida de `upsert` retentando como `update`, mas se esse
   // retry também colidir (extremamente improvável), o erro que escapa
@@ -38,7 +38,7 @@ const CONSTRAINT_REASONS: Record<string, string> = {
   CandidateProfile_userId_key: 'candidate_profile_conflict',
 };
 
-// Achado Qwen rodada 6 (ressalva 11): mesma ideia do CONSTRAINT_LABELS,
+// Achado da revisão técnica (ressalva 11): mesma ideia do CONSTRAINT_LABELS,
 // aplicada ao P2025 — "recurso não encontrado" vira "usuário não
 // encontrado" quando dá pra saber o modelo.
 const MODEL_LABELS: Record<string, string> = {
@@ -56,7 +56,7 @@ const MODEL_LABELS: Record<string, string> = {
   Document: 'Documento',
 };
 
-// Achado Qwen rodada 7 (ressalvas 2 e 3): erros de integridade que passam
+// Achado da revisão técnica (ressalvas 2 e 3): erros de integridade que passam
 // por SQL cru (`$executeRawUnsafe`/`$queryRaw`) chegam como `P2010`
 // (envelope genérico de "raw query failed"), e uma violação de `CHECK` via
 // client chega como `P2039` — nenhum dos dois tem um `case` dedicado no
@@ -66,7 +66,7 @@ const MODEL_LABELS: Record<string, string> = {
 // qualquer P-code que o encapsule, não só os dois medidos. Também inclui
 // os retryáveis que uma fila de `SELECT ... FOR UPDATE` (Fase 3) pode
 // produzir (deadlock, lock indisponível, timeout de statement) — sinalizados
-// por Qwen como risco não medido, mas do mesmo jeito, cobertos por
+// pela revisão técnica como risco não medido, mas do mesmo jeito, cobertos por
 // precaução.
 const SQLSTATE_CONFLICT = new Set([
   '23505', // unique_violation
@@ -82,7 +82,7 @@ const SQLSTATE_BAD_REQUEST = new Set([
 ]);
 
 function isTransactionWriteConflict(error: unknown): boolean {
-  // Achado crítico Qwen rodada 6 (N1-a): com driver adapter (obrigatório no
+  // Achado crítico da revisão técnica (N1-a): com driver adapter (obrigatório no
   // Prisma 7), um conflito de serialização (`Serializable`) NÃO chega como
   // `Prisma.PrismaClientKnownRequestError` com `code: 'P2034'` — chega como
   // um `DriverAdapterError` (classe nem exportada por `Prisma.*`), com
@@ -98,7 +98,7 @@ function isTransactionWriteConflict(error: unknown): boolean {
 
 /**
  * Filtro global único (substitui `PrismaExceptionFilter` +
- * `UnauthorizedExceptionFilter`, unificados na rodada 6 para eliminar
+ * `UnauthorizedExceptionFilter`, unificados posteriormente para eliminar
  * ambiguidade de ordem entre múltiplos `APP_FILTER`): trata os casos
  * conhecidos (Prisma, conflito de transação, 401) e delega tudo o mais
  * para o comportamento padrão do Nest via `super.catch()` — nunca
@@ -127,7 +127,7 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     // traduz o `MulterError('LIMIT_FILE_SIZE')` pra um `PayloadTooLargeException`
     // (`HttpException` normal, com `status: 413`) ANTES de chegar aqui —
     // nunca sobra um `MulterError` cru pro filtro tratar. O enunciado
-    // deste projeto (mapa DeepSeek, Documentos) especifica `400` pra
+    // deste projeto (mapa de endpoints, Documentos) especifica `400` pra
     // "tamanho excedido", não `413` — reclassificado aqui pra manter o
     // mesmo contrato de erro estruturado dos outros módulos de domínio.
     if (exception instanceof PayloadTooLargeException) {
@@ -136,7 +136,7 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     }
 
     if (isTransactionWriteConflict(exception)) {
-      // Achado Qwen rodada 13 (ressalva 1): este é, na prática, o
+      // Achado da revisão técnica (ressalva 1): este é, na prática, o
       // desfecho MAIS FREQUENTE das travas novas de K2/K3 (9 em 10 `409`
       // medidos no reataque do K3 eram conflito de serialização, não
       // `last_active_admin`) — e era o único `409` de domínio do projeto
@@ -155,7 +155,7 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     }
 
     if (exception instanceof UnauthorizedException) {
-      // Achado Qwen rodada 6 (ressalva 7): erros lançados pelo Passport
+      // Achado da revisão técnica (ressalva 7): erros lançados pelo Passport
       // (sem JWT, JWT malformado) têm um formato de corpo diferente dos
       // que nós lançamos manualmente (`ApiKeyGuard`, `AuthService`) — um
       // tinha `error`, o outro não. Normaliza os dois pro mesmo formato.
@@ -250,7 +250,7 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
       case 'P2034':
       case 'P2028':
         // Mantido por completude (ver comentário de isTransactionWriteConflict).
-        // Achado Qwen rodada 13 (ressalva 1): sob carga real, um conflito
+        // Achado da revisão técnica (ressalva 1): sob carga real, um conflito
         // de serialização às vezes chega aqui (como
         // `PrismaClientKnownRequestError` limpo) em vez de pelo
         // duck-typing de `isTransactionWriteConflict` — precisa do MESMO
@@ -263,7 +263,7 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
         // comentário de SQLSTATE_CONFLICT/SQLSTATE_BAD_REQUEST acima.
         const state = this.sqlState(exception);
         if (state && SQLSTATE_CONFLICT.has(state)) {
-          // Mesmo achado Qwen rodada 13 (ressalva 1) — este é o caminho
+          // Mesmo achado da revisão técnica (ressalva 1) — este é o caminho
           // que um `CHECK` disparando (`23514`, ex.: `filledCount <=
           // vacancies`) ou um deadlock/lock-timeout percorre.
           return { status: HttpStatus.CONFLICT, message: 'Conflito de concorrência ou de regra de negócio — tente novamente.', reason: 'concorrencia_transacao' };

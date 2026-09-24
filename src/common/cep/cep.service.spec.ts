@@ -24,7 +24,7 @@ describe('CepService', () => {
     return moduleRef.get(CepService);
   }
 
-  // Achado Qwen rodada 11 (N1): antes, os dois casos abaixo (CEP
+  // Achado da revisão técnica (N1): antes, os dois casos abaixo (CEP
   // inexistente e falha de rede) devolviam o mesmo formato (`{street:
   // null, city: null, state: null}`), indistinguíveis pra quem chamava —
   // era exatamente essa ambiguidade que permitia gravar um `cep` novo com

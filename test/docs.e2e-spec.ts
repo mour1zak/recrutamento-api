@@ -10,8 +10,7 @@ loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
 /**
  * `/docs`/`/docs-json` são deliberadamente públicos (decisão final,
- * revertendo a recomendação do Qwen na Rodada 15 — ver
- * `docs/fases/TRIAGEM-REVISOES-RODADA15.md`): a alternativa com
+ * revertendo a recomendação em contrário de uma revisão técnica): a alternativa com
  * `x-api-key`/Basic Auth funcionava, mas a UX do popup nativo pedindo
  * "usuário/senha" pra uma chave sem conceito de usuário ficou confusa
  * demais pra valer a pena. O que continua valendo, independente dessa
@@ -40,7 +39,7 @@ describe('Docs (e2e)', () => {
   it('GET /docs-json sem nenhuma credencial -> 200, sem credencial real nos examples', async () => {
     const res = await request(app.getHttpServer()).get('/docs-json').expect(200);
     const raw = JSON.stringify(res.body);
-    // Achado crítico Qwen rodada 15 (bloqueante): o `example` de
+    // Achado crítico da revisão técnica (bloqueante): o `example` de
     // `LoginDto` publicava o email e a senha reais do ADMIN do seed —
     // combinados, davam um token de administrador a quem lesse o
     // documento. Trava de regressão: nenhuma credencial real do seed

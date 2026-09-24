@@ -5,7 +5,7 @@ import { IS_PUBLIC_KEY } from '../../common/decorators/public.decorator.js';
 
 /**
  * Global (registrado como APP_GUARD em app.module.ts) — corrige achado
- * crítico da auditoria Qwen rodada 4 (C2): antes, este guard só era
+ * crítico da auditoria técnica (C2): antes, este guard só era
  * aplicado por controller via @UseGuards(), mas o PermissionsGuard já era
  * global. Guards globais sempre rodam antes de guards de controller no
  * Nest, então o PermissionsGuard rodava com `request.user` ainda

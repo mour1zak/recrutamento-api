@@ -5,7 +5,7 @@ import { PrismaClient } from '../generated/prisma/client.js';
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
-    // Gate Fase 3 (achado Qwen rodada 5, N15): sem limites explícitos, um
+    // Gate Fase 3 (achado da revisão técnica, N15): sem limites explícitos, um
     // teste de concorrência com N requisições simultâneas esbarra no
     // limite PADRÃO do pool do `pg` antes de esbarrar no lock/`CHECK` que
     // a Fase 3 testa — o sintoma vira um timeout confuso (`P2028`) em vez
@@ -20,7 +20,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       idleTimeoutMillis: 30000,
     });
 
-    // `omit` global (mitigação obrigatória de C3, achado Qwen rodada 2/3):
+    // `omit` global (mitigação obrigatória de C3, achado da revisão técnica):
     // campos sensíveis nunca saem por padrão, mesmo se algum endpoint
     // esquecer de usar `select`. Só cobre o Prisma Client — `$queryRaw`
     // ignora `omit`, então SQL bruto (Fase 3) precisa selecionar só as

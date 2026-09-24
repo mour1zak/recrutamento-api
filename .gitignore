@@ -42,8 +42,8 @@ test-results/
 .DS_Store
 Thumbs.db
 
-# Ferramenta de IA usada no desenvolvimento (config local de preview do
-# Claude Code) — sem uso pra quem clona o projeto, não deve ser versionada.
+# Config local de ferramenta de desenvolvimento assistido por IA — sem uso
+# pra quem clona o projeto, não deve ser versionada.
 .claude/
 
 # Registro interno do processo de desenvolvimento (rodadas de auditoria,

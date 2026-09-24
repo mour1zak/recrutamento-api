@@ -46,8 +46,7 @@ async function bootstrap() {
   // pra uma chave sem conceito de usuário ficou confusa demais pra valer
   // a pena. O que protege de verdade essa decisão é que nenhum `example`
   // do Swagger publica uma credencial real do seed. Histórico completo
-  // da decisão em `src/common/swagger.config.ts` e
-  // `docs/fases/TRIAGEM-REVISOES-RODADA15.md`.
+  // da decisão em `src/common/swagger.config.ts`.
   configureSwagger(app);
 
   await app.listen(process.env.PORT ?? 3000);

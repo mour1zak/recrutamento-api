@@ -57,7 +57,7 @@ export class InterviewsController {
   @ApiOperation({
     summary: 'Atualizar entrevista (status/feedback) ou reagendar',
     description:
-      'Contrato de `RESCHEDULED` (definido pelo DeepSeek): enviar `status: "RESCHEDULED"` junto de um novo `scheduledAt` NÃO edita o registro atual — cria uma NOVA entrevista, e a resposta vem com HTTP `201` (em vez do `200` normal) contendo o novo registro. Entrevista em status terminal rejeita novas atualizações com `409`.',
+      'Contrato de `RESCHEDULED` (definido na especificação de negócio): enviar `status: "RESCHEDULED"` junto de um novo `scheduledAt` NÃO edita o registro atual — cria uma NOVA entrevista, e a resposta vem com HTTP `201` (em vez do `200` normal) contendo o novo registro. Entrevista em status terminal rejeita novas atualizações com `409`.',
   })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'Entrevista atualizada (status/feedback), sem reagendamento.' })
@@ -67,7 +67,7 @@ export class InterviewsController {
   @ApiResponse({ status: 403, description: 'Sem a permissão `interview:update`.' })
   @ApiResponse({ status: 404, description: 'Entrevista não encontrada, ou de empresa diferente da do usuário.' })
   @ApiResponse({ status: 409, description: 'Entrevista em status terminal.' })
-  // Contrato de RESCHEDULED (DeepSeek §5): a mesma rota PATCH devolve `200`
+  // Contrato de RESCHEDULED (especificação de negócio §5): a mesma rota PATCH devolve `200`
   // normalmente, mas `201` com a NOVA entrevista quando o corpo pede
   // `status: "RESCHEDULED"` — `@Res({ passthrough: true })` deixa o Nest
   // serializar o corpo de retorno normalmente, só o status HTTP é

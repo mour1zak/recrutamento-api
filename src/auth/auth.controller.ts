@@ -13,7 +13,7 @@ import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 // (APP_GUARD global) continua se aplicando a todos, inclusive estes
 // (decisão CE-1). `logout` não tem @Public(): precisa de JWT válido, e
 // isso já é garantido pelo JwtAuthGuard global — não precisa mais de
-// @UseGuards() explícito aqui (achado Qwen rodada 4, C2).
+// @UseGuards() explícito aqui (achado da revisão técnica, C2).
 //
 // Nota sobre o formato de erro: as rotas deste controller usam o formato
 // ANTIGO ({statusCode, error, message}, sem `reason`) — já auditado e

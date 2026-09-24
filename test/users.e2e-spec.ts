@@ -11,7 +11,7 @@ import { JobStatus } from '../src/generated/prisma/client.js';
 loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
 /**
- * Rotas de gestão de usuários da Fase 4 (mapa DeepSeek §7) —
+ * Rotas de gestão de usuários da Fase 4 (mapa de endpoints §7) —
  * `deactivate`/`reactivate` já são cobertas em `auth.e2e-spec.ts` (Fase 2,
  * já auditadas, formato de erro antigo preservado de propósito). Estas
  * quatro rotas são novas, sem escopo de auditoria fechado, então usam o
@@ -107,7 +107,7 @@ describe('Users management (e2e)', () => {
     expect(trueRes.body.data.every((u: { isActive: boolean }) => u.isActive === true)).toBe(true);
   });
 
-  it('PATCH /users/:id/company com body {} (campo ausente) -> 400, nunca 500 (achado Qwen rodada 12, K4)', async () => {
+  it('PATCH /users/:id/company com body {} (campo ausente) -> 400, nunca 500 (achado da revisão técnica, K4)', async () => {
     const res = await request(app.getHttpServer())
       .patch(`/users/${candidateId}/company`)
       .set('x-api-key', apiKey)
@@ -187,10 +187,10 @@ describe('Users management (e2e)', () => {
     });
   });
 
-  // Achado CRÍTICO Qwen rodada 12 (K3): a contagem de "admins ativos" e a
+  // Achado CRÍTICO da revisão técnica (K3): a contagem de "admins ativos" e a
   // escrita do novo papel aconteciam em dois passos separados, sem
-  // transação — a mesma classe de corrida do C4 (Fase 2) e do C2 de Jobs
-  // (rodada 8). Medido: isolando exatamente 2 admins ativos e trocando o
+  // transação — a mesma classe de corrida do C4 (Fase 2) e do C2 de Jobs.
+  // Medido: isolando exatamente 2 admins ativos e trocando o
   // papel dos dois ao mesmo tempo, 10 em 12 corridas zeraram os admins
   // ativos. Corrigido envolvendo a contagem na mesma transação
   // `Serializable` que `deactivate()` já usa. Provar isso de verdade
@@ -234,7 +234,7 @@ describe('Users management (e2e)', () => {
         ]);
 
         expect([resX.status, resY.status].every((s) => s === 200 || s === 409)).toBe(true);
-        // Achado Qwen rodada 13 (ressalva 1): o 409 desta corrida pode
+        // Achado da revisão técnica (ressalva 1): o 409 desta corrida pode
         // vir da regra de negócio (`last_active_admin`) OU de um
         // conflito de serialização puro (`concorrencia_transacao`) —
         // os dois agora têm `reason`, nenhum 409 "mudo".

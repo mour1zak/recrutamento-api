@@ -1,7 +1,7 @@
 generator client {
   provider            = "prisma-client"
   output              = "../src/generated/prisma"
-  // Explícito por decisão (achado Qwen rodada 3, §5): sem isso, o gerador
+  // Explícito por decisão (achado da revisão técnica, §5): sem isso, o gerador
   // infere o formato a partir do ambiente (tsconfig/"type" do package.json)
   // no momento do `generate` — mudar de máquina/CI podia gerar client ESM
   // num lugar e CommonJS noutro, silenciosamente. O projeto é ESM
@@ -101,14 +101,13 @@ model Role {
   id          Int              @id @default(autoincrement())
   name        String           @unique // ex.: "CANDIDATE", "RECRUITER", "ADMIN"
   description String?
-  // CORREÇÃO (achado Qwen rodada 3, §3 — o comentário anterior prometia uma
+  // CORREÇÃO (achado da revisão técnica, §3 — o comentário anterior prometia uma
   // proteção que não existe): este campo só MARCA os 3 papéis criados pelo
   // seed. Ele NÃO impede rename, mudança de isSystem, nem esvaziar/apagar o
   // papel — provado com UPDATE/INSERT aceitos direto no Postgres. A
   // proteção de verdade (impedir rename/exclusão/auto-esvaziamento dos
   // papéis de sistema) é responsabilidade do Service e só é exigida quando
-  // o Nível B existir (ver FEEDBACKS-MELHORIA.md #3 e
-  // TRIAGEM-REVISOES-RODADA3.md, R-isSystem).
+  // o Nível B existir (R-isSystem).
   isSystem    Boolean          @default(false)
 
   users           User[]
@@ -119,7 +118,7 @@ model Role {
 
   // @map: "role" colide com palavra reservada de privilégio do PostgreSQL
   // (GRANT role, pg_roles) — evita precisar citar entre aspas em SQL bruto,
-  // inclusive no SELECT ... FOR UPDATE da Fase 3 (achado Qwen rodada 2, R5).
+  // inclusive no SELECT ... FOR UPDATE da Fase 3 (achado da revisão técnica, R5).
   @@map("app_roles")
 }
 
@@ -142,7 +141,7 @@ model RolePermission {
   permissionId Int
   // Restrict (não Cascade): apagar uma Permission enquanto ela ainda está
   // concedida a algum papel é bloqueado pelo banco. Corrige achado real da
-  // auditoria Qwen rodada 2 (C7): com Cascade, apagar 1 Permission revogava
+  // auditoria técnica (C7): com Cascade, apagar 1 Permission revogava
   // essa permissão de TODOS os papéis do sistema em silêncio, sem rastro.
   // Com Restrict, é preciso revogar explicitamente de cada papel primeiro.
   permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
@@ -153,7 +152,7 @@ model RolePermission {
   @@unique([roleId, permissionId])
   // Sem isto, "quais papéis têm a permissão X" (a tela do endpoint de ADMIN
   // do Nível B) fazia varredura completa da tabela — achado real da
-  // auditoria Qwen rodada 2 (R3).
+  // auditoria técnica (R3).
   @@index([permissionId])
   @@map("app_role_permissions")
 }
@@ -168,7 +167,7 @@ model RefreshToken {
   createdAt DateTime  @default(now())
 
   @@index([userId])
-  // Consulta de limpeza/validação de tokens expirados — achado Qwen rodada 2.
+  // Consulta de limpeza/validação de tokens expirados — achado da revisão técnica.
   @@index([expiresAt])
 }
 
@@ -202,7 +201,7 @@ model Company {
   name        String
   cnpj        String?  @unique
   description String?
-  // Corrige achado Qwen rodada 3 (C5): remoção de empresa era um DELETE
+  // Corrige achado da revisão técnica (C5): remoção de empresa era um DELETE
   // físico que apagava, junto, a evidência de quem foi recrutador dela —
   // sem tabela de auditoria pra isso. Espelha o mesmo mecanismo que já
   // existe em User (isActive): "remover" uma empresa é desativar, não
@@ -211,8 +210,8 @@ model Company {
   isActive    Boolean  @default(true)
 
   // Endereço resolvido via integração externa de CEP/localização. Opcional
-  // (corrige item 13 da rodada 3): o plano de cenários de falha externa do
-  // DeepSeek (§5) cria a empresa mesmo com a API de CEP fora do ar, com
+  // (corrige item 13 de uma revisão anterior): o plano de cenários de falha
+  // externa da especificação de negócio (§5) cria a empresa mesmo com a API de CEP fora do ar, com
   // endereço null — um `cep` obrigatório impedia isso de fechar em 201.
   cep         String?
   street      String?
@@ -257,7 +256,7 @@ model Job {
   // Composto em vez de dois índices separados: cobre "vagas da empresa X"
   // (prefixo companyId) e "vagas da empresa X com status Y" numa só
   // estrutura — um @@index([status]) isolado teria seletividade baixa
-  // (poucos valores possíveis) — achado Qwen rodada 2 (ressalva "índices
+  // (poucos valores possíveis) — achado da revisão técnica (ressalva "índices
   // redundantes").
   @@index([companyId, status])
 }
@@ -331,10 +330,10 @@ model Interview {
   feedback        String?
 
   // RESCHEDULED gera uma nova Interview (não edita a antiga in-place),
-  // apontando pra qual entrevista ela substitui — decisão do DeepSeek
+  // apontando pra qual entrevista ela substitui — decisão da especificação de negócio
   // (Fase 1, planejamento de negócio): preserva o registro original como
   // histórico em vez de sobrescrevê-lo.
-  // Restrict, não SetNull (corrige achado Qwen rodada 3, item 17): com
+  // Restrict, não SetNull (corrige achado da revisão técnica, item 17): com
   // SetNull, apagar uma entrevista NO MEIO da cadeia de reagendamentos
   // quebrava o elo em silêncio (a próxima entrevista perdia a referência
   // pra anterior, sem erro nenhum). Restrict obriga tratar isso
@@ -365,7 +364,7 @@ model Document {
   mimeType     String
   sizeBytes    Int
   // @unique evita colisão de arquivo físico (dois registros apontando pro
-  // mesmo caminho em disco) — achado real da auditoria Qwen rodada 2.
+  // mesmo caminho em disco) — achado real da auditoria técnica.
   path         String @unique
 
   applications Application[]
@@ -373,6 +372,6 @@ model Document {
   createdAt    DateTime     @default(now())
 
   // Composto: cobre "documentos do usuário X" e "documentos do tipo Y do
-  // usuário X" — achado Qwen rodada 2.
+  // usuário X" — achado da revisão técnica.
   @@index([ownerId, type])
 }

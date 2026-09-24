@@ -328,13 +328,13 @@ describe('Applications (e2e)', () => {
     });
   });
 
-  // Achado CRÍTICO Qwen rodada 12 (K1): a versão anterior comparava
+  // Achado CRÍTICO da revisão técnica (K1): a versão anterior comparava
   // `filledCount` (coluna) contra `application.job.vacancies` — um NÚMERO
   // lido ANTES da transação de contratação começar, não a coluna
   // `vacancies` em si. O teste de concorrência acima (duas contratações
   // simultâneas, `vacancies` ESTÁVEL) não pegava isso — as duas
   // comparações só divergem quando `vacancies` MUDA no meio do caminho.
-  // Medido pelo Qwen: reduzir `vacancies` enquanto uma contratação está
+  // Medido na revisão técnica: reduzir `vacancies` enquanto uma contratação está
   // em voo produzia `filledCount > vacancies` em 15 de 25 corridas.
   // Corrigido com SQL parametrizado comparando coluna×coluna
   // (`$executeRaw`), e reforçado com um `CHECK` na migration como rede de
@@ -375,7 +375,7 @@ describe('Applications (e2e)', () => {
         expect([reduceRes.status, hireRes.status].every((s) => s < 500)).toBe(true);
 
         const job = await prisma.job.findUniqueOrThrow({ where: { id: jobId } });
-        // O invariante que importa, exatamente como o Qwen mediu: nunca
+        // O invariante que importa, exatamente como a revisão técnica mediu: nunca
         // `filledCount > vacancies`, não importa qual dos dois venceu a
         // corrida.
         expect(job.filledCount).toBeLessThanOrEqual(job.vacancies);
@@ -383,11 +383,11 @@ describe('Applications (e2e)', () => {
     });
   });
 
-  // Achado CRÍTICO Qwen rodada 12 (K5): `isCompanyOperable()` foi extraído
-  // na rodada 11 exatamente pra este consumidor (o comentário do próprio
+  // Achado CRÍTICO da revisão técnica (K5): `isCompanyOperable()` foi extraído
+  // anteriormente exatamente pra este consumidor (o comentário do próprio
   // helper diz isso) e nunca foi importado em `ApplicationsService`. Sem
   // ele, um recrutador de empresa desativada continuava lendo e
-  // escrevendo candidaturas normalmente — medido pelo Qwen com o mesmo
+  // escrevendo candidaturas normalmente — medido na revisão técnica com o mesmo
   // token, no mesmo instante, contra `Jobs` (404 correto) e
   // `Applications` (200 incorreto).
   describe('K5: empresa desativada bloqueia acesso do recrutador a candidaturas', () => {

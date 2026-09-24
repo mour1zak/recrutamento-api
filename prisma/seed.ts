@@ -3,7 +3,7 @@ import { PrismaClient } from '../src/generated/prisma/client.js';
 import { ROLE_PERMISSIONS, SYSTEM_ROLES } from '../src/common/constants/permissions.constants.js';
 import { hashPassword } from '../src/common/utils/password.util.js';
 
-// Corrige achado Qwen rodada 4 (R4): seed nunca roda contra produção, nem
+// Corrige achado da revisão técnica (R4): seed nunca roda contra produção, nem
 // por engano — reúne 3 problemas que o próprio projeto já tinha listado
 // como lições (segredo em log, segredo hardcoded, credencial privilegiada
 // fraca) num único script.
@@ -21,8 +21,8 @@ const SEED_USER_PASSWORD = process.env.SEED_USER_PASSWORD ?? 'Senha@123';
 /**
  * Seed mínimo (RBAC + 1 usuário por papel) — o suficiente para testar
  * login/autorização de ponta a ponta. O plano completo de dados de domínio
- * (2 empresas, 7 vagas, 9 candidaturas, 5 entrevistas, 8 documentos — ver
- * PARECER-DEEPSEEK-FASE1.md §4) entra quando os módulos de Company/Job/
+ * (2 empresas, 7 vagas, 9 candidaturas, 5 entrevistas, 8 documentos,
+ * definido na especificação de negócio) entra quando os módulos de Company/Job/
  * Application existirem, para poder ser exercitado pelos endpoints reais
  * em vez de só inserido direto no banco.
  */
@@ -73,7 +73,7 @@ async function main() {
 
   console.log('Seed: criando empresa do recrutador...');
 
-  // Achado crítico Qwen rodada 8 (C1): um RECRUITER sem `companyId`
+  // Achado crítico da revisão técnica (C1): um RECRUITER sem `companyId`
   // (como este seed criava antes) tinha, na prática, acesso GLOBAL a
   // vagas de qualquer empresa — `isInScope()`/`resolveCompanyIdForCreate()`
   // tratavam `companyId: null` como "sem restrição", e esse usuário tem

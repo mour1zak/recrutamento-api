@@ -7,7 +7,7 @@ import { PERMISSIONS } from '../common/constants/permissions.constants.js';
 import { ApplicationStatus, DocumentType } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
 
-// Achado Fase 1, Pergunta 2 do DeepSeek: mesma lista positiva usada em
+// Achado Fase 1, Pergunta 2 da especificação de negócio: mesma lista positiva usada em
 // Application/CandidateProfile — "status de avaliação em andamento" é a
 // mesma pergunta de negócio nos três lugares.
 const STATUSES_THAT_GRANT_DOCUMENT_ACCESS: ApplicationStatus[] = [
@@ -74,7 +74,7 @@ export class DocumentsService {
     if (document.ownerId === currentUser.id || isAdmin(currentUser)) {
       return document;
     }
-    // Achado CRÍTICO Qwen rodada 12 (K5): faltava `isCompanyOperable()` —
+    // Achado CRÍTICO da revisão técnica (K5): faltava `isCompanyOperable()` —
     // sem ela, um recrutador de empresa desativada continuava baixando
     // arquivos normalmente.
     const companyId = currentUser.companyId;
@@ -84,7 +84,7 @@ export class DocumentsService {
     // `document:read:application`: só se este documento específico foi
     // ANEXADO (`resumeDocumentId`) a uma candidatura da empresa do
     // recrutador, com status que já indica avaliação em andamento.
-    // Achado CRÍTICO Qwen rodada 12 (K6): a versão anterior também
+    // Achado CRÍTICO da revisão técnica (K6): a versão anterior também
     // aceitava `{ candidateId: document.ownerId }` — bastava existir
     // QUALQUER candidatura qualificada do candidato na empresa pra
     // liberar TODOS os documentos dele, mesmo os nunca anexados a

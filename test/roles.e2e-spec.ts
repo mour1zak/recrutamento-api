@@ -13,7 +13,7 @@ loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
  * RBAC Nível B. A maior parte dos testes usa só um papel CUSTOM (nunca
  * `ADMIN`/`RECRUITER`/`CANDIDATE` do seed) — mexer nas permissões dos 3
  * papéis reais afetaria toda a suíte. A EXCEÇÃO é o teste de concorrência
- * do K2 (achado Qwen rodada 12): provar a trava "sem papel nenhum com
+ * do K2 (achado da revisão técnica): provar a trava "sem papel nenhum com
  * role:manage" de verdade exige tirar `role:manage` do ADMIN
  * temporariamente — feito com `try/finally` restaurando o estado
  * original, e seguro porque nenhum outro arquivo de teste chama rotas
@@ -144,7 +144,7 @@ describe('Roles / RBAC Nível B (e2e)', () => {
     await prisma.user.delete({ where: { id: tempUser.id } });
   });
 
-  // Achado CRÍTICO Qwen rodada 12 (K2): a contagem de "outros papéis com
+  // Achado CRÍTICO da revisão técnica (K2): a contagem de "outros papéis com
   // role:manage" acontecia FORA da transação de escrita — duas
   // requisições concorrentes em papéis diferentes, cada uma vendo "o
   // outro ainda tem", podiam ambas zerar a permissão do sistema inteiro
@@ -191,14 +191,14 @@ describe('Roles / RBAC Nível B (e2e)', () => {
         ]);
 
         expect([resA.status, resB.status].every((s) => s === 200 || s === 409)).toBe(true);
-        // Achado CRÍTICO Qwen rodada 14: esta asserção exigia
+        // Achado CRÍTICO da revisão técnica: esta asserção exigia
         // EXCLUSIVAMENTE `concorrencia_transacao`, mas o 409 desta corrida
         // tem dois desfechos legítimos — o Postgres pode abortar uma
         // transação por conflito de serialização (`concorrencia_transacao`),
         // OU a primeira commitar antes da segunda contar, fazendo a
         // REGRA DE NEGÓCIO disparar (`sem_papel_com_role_manage`), que é a
         // trava funcionando pelo caminho previsto, não uma falha. É a
-        // mesma classe de erro da rodada 9 (N2: "exatamente um 200" quando
+        // mesma classe de erro de uma correção anterior (N2: "exatamente um 200" quando
         // dois 200 eram legais) — asserção sobre QUAL desfecho legal
         // aconteceu, em vez de sobre o invariante. Regra de teste de
         // concorrência do projeto a partir de agora: assertar o invariante

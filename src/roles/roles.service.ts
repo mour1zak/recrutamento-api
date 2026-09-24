@@ -27,10 +27,10 @@ function toRoleResponse(role: {
 }
 
 /**
- * RBAC Nível B (decisão explícita da Fase 1 de assumir o custo — ver
- * `FASE-1-MODELAGEM.md` §5.1): editar em runtime quais permissões cada
+ * RBAC Nível B (decisão explícita da Fase 1 de assumir o custo): editar
+ * em runtime quais permissões cada
  * papel tem, sem precisar de deploy. Só 3 rotas — `DELETE /roles/:id`
- * nunca existiu no mapa do DeepSeek e não é exposto aqui de propósito
+ * nunca existiu no mapa de endpoints e não é exposto aqui de propósito
  * (mesma lógica de `job:delete` reservado em Jobs): apagar um papel dos
  * 3 do enunciado quebraria o RBAC inteiro, e `isSystem` (schema, Fase 1)
  * não tem nenhum código que dependa dele além de existir — não precisa
@@ -67,7 +67,7 @@ export class RolesService {
       }
     }
 
-    // Achado CRÍTICO Qwen rodada 12 (K2): a versão anterior fazia a
+    // Achado CRÍTICO da revisão técnica (K2): a versão anterior fazia a
     // contagem de "outros papéis com role:manage" FORA da transação de
     // escrita — duas requisições `PUT` simultâneas em papéis DIFERENTES,
     // cada uma removendo `role:manage` do seu próprio papel, contavam
@@ -77,10 +77,10 @@ export class RolesService {
     // irrecuperável pela API (a própria rota que desfaria isso exige a
     // permissão que acabou de sumir). Corrigido envolvendo a contagem E
     // a escrita na MESMA transação `Serializable` — mesmo padrão já
-    // provado em `UsersService.deactivate()` (rodada 5/6): o Postgres
+    // provado em `UsersService.deactivate()`: o Postgres
     // detecta a dependência entre as duas transações concorrentes e
     // aborta uma delas com conflito de serialização, que o
-    // `GlobalExceptionFilter` já traduz para `409` desde a rodada 6.
+    // `GlobalExceptionFilter` já traduz para `409`.
     await this.prisma.$transaction(
       async (tx) => {
         const roleManagePermission = await tx.permission.findUnique({ where: { key: PERMISSIONS.ROLE_MANAGE } });

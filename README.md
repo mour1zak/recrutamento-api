@@ -250,8 +250,21 @@ tentam usá-lo.
 
 ### 4.2 Banco de dados
 
-Crie um usuário e dois bancos dedicados (dev e teste) — **não** use o
-superusuário `postgres` na aplicação:
+Abra um cliente SQL conectado como **superusuário** do Postgres (quem
+instalou definiu a senha dele):
+
+- **Windows**: o instalador não coloca `psql` no PATH por padrão. Abra o
+  PowerShell e rode (ajuste a versão, ex. `18`, conforme a sua instalação):
+  ```powershell
+  & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost
+  ```
+- **Linux/macOS**: normalmente `psql` já está no PATH — `psql -U postgres -h localhost`.
+- Alternativa em qualquer sistema: pgAdmin (GUI, instalado junto com o
+  Postgres na maioria das distribuições) — abra uma "Query Tool" contra o
+  servidor local.
+
+Depois de conectado, crie um usuário e dois bancos dedicados (dev e
+teste) — **não** use o superusuário `postgres` na aplicação:
 
 ```sql
 CREATE ROLE recrutamento_app LOGIN PASSWORD 'escolha-uma-senha' CREATEDB;

@@ -338,7 +338,7 @@ tela.
 
 ## 10. Testes — a estratégia, não só o número
 
-🔴 Os 10 cenários obrigatórios do enunciado, cobertos. 🟡 163 testes no
+🔴 Os 10 cenários obrigatórios do enunciado, cobertos. 🟡 167 testes no
 total (muito além do mínimo) — mas o número importa menos que a
 **disciplina**:
 

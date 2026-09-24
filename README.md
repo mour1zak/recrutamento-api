@@ -12,12 +12,12 @@
 > invariantes de `Job.filledCount`/`vacancies` validadas dentro da mesma
 > transação, `CHECK` de banco, trigger de auditoria (`updatedAt`) em UTC,
 > índice único case-insensitive de `User.email`, e pool de conexão do
-> `pg` com timeout explícito. **164 testes automatizados verdes** (9
+> `pg` com timeout explícito. **167 testes automatizados verdes** (12
 > unitários + 155 e2e).
 >
 > **Todos os itens de bônus do enunciado concluídos:** paginação, filtros
 > e ordenação configurável (`?sortOrder=asc|desc`) em toda listagem;
-> Seed; testes automatizados (164, muito além do mínimo); Docker
+> Seed; testes automatizados (167, muito além do mínimo); Docker
 > (multi-stage, Postgres, migrations automáticas); indicadores do domínio
 > (`GET /companies/:id/stats` — vagas por status, funil de candidaturas,
 > taxa de conversão, tempo médio até contratação, além da observabilidade
@@ -77,7 +77,7 @@ deixamos isso implícito no código._
 | Item | Status |
 |---|---|
 | Paginação/filtros/ordenação | 🟢 `?page&limit` em toda listagem (`PaginationQueryDto` compartilhado); filtros por status/role/companyId/isActive já existem nas listagens que fazem sentido; **ordenação configurável** via `?sortOrder=asc\|desc` (o campo continua fixo por listagem — `createdAt` na maioria, `id` em `GET /users` — por escolha deliberada: aceitar um nome de coluna arbitrário via query string abriria uma superfície de risco desnecessária) |
-| Testes automatizados | 🟢 164 testes (9 unitários + 155 e2e), muito além do mínimo — já contam como bônus mesmo sendo também ferramenta de auditoria |
+| Testes automatizados | 🟢 167 testes (12 unitários + 155 e2e), muito além do mínimo — já contam como bônus mesmo sendo também ferramenta de auditoria |
 | Seed | 🟢 `prisma/seed.ts` — catálogo de permissões, papéis, um usuário de cada papel |
 | **Docker** | 🟢 **Concluído e verificado por execução** — `Dockerfile` multi-stage (deps/build/runtime, usuário não-root), `docker/compose.dev.yml` (API + Postgres + migrations automáticas via `prisma migrate deploy`), volumes persistentes (Postgres + uploads, com permissão corrigida pro usuário `node`), porta da API mapeada em `3001` (não conflita com o dev local em `3000`) |
 | **Observabilidade (infraestrutura)** | 🟢 **Concluída** — `docker/compose.obs.yml` com Loki + Promtail + Grafana, dashboard provisionado automaticamente filtrando os logs do container da API (`container="recrutamento-api"`), confirmado recebendo os logs do `LoggingInterceptor`/`GlobalExceptionFilter` em tempo real |
@@ -398,7 +398,7 @@ npm test        # unitários
 npm run test:e2e
 ```
 
-**164 testes automatizados, todos verdes** (155 e2e em
+**167 testes automatizados, todos verdes** (155 e2e em
 `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
 `test/companies.e2e-spec.ts` + `test/company-stats.e2e-spec.ts` +
 `test/jobs.e2e-spec.ts` +
@@ -406,9 +406,10 @@ npm run test:e2e
 `test/interviews.e2e-spec.ts` + `test/documents.e2e-spec.ts` +
 `test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts` +
 `test/gate-fase3.e2e-spec.ts` + `test/docs.e2e-spec.ts` +
-`test/cep.e2e-spec.ts` (14 arquivos), 9 unitários em `src/app.controller.spec.ts` +
+`test/cep.e2e-spec.ts` (14 arquivos), 12 unitários em `src/app.controller.spec.ts` +
 `src/common/cep/cep.service.spec.ts` + `src/roles/roles.service.spec.ts` +
-`src/common/interceptors/logging.interceptor.spec.ts`), cobrindo os
+`src/common/interceptors/logging.interceptor.spec.ts` +
+`src/common/filters/global-exception.filter.spec.ts`), cobrindo os
 cenários obrigatórios de auth (400/401/409, fluxo completo de registro/
 login/refresh/logout, uma rota protegida por permission key, e a trava de
 último administrador sob concorrência real — 8 admins temporários, 4

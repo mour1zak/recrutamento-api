@@ -77,6 +77,36 @@ describe('Users management (e2e)', () => {
     return request(app.getHttpServer()).get('/users/999999').set('x-api-key', apiKey).set('Authorization', `Bearer ${adminToken}`).expect(404);
   });
 
+  it('GET /users?isActive=false -> só desativados (achado: `Boolean("false")` é `true`, filtro virava sempre `isActive: true`)', async () => {
+    const candidateRole = await prisma.role.findUniqueOrThrow({ where: { name: SYSTEM_ROLES.CANDIDATE } });
+    const inactiveUser = await prisma.user.create({
+      data: {
+        name: 'Usuario Inativo Teste Filtro',
+        email: `inativo.filtro.${Date.now()}@example.com`,
+        password: 'hash-irrelevante-para-este-teste',
+        roleId: candidateRole.id,
+        isActive: false,
+      },
+    });
+    cleanupUserIds.push(inactiveUser.id);
+
+    const falseRes = await request(app.getHttpServer())
+      .get('/users?isActive=false')
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(falseRes.body.data.some((u: { id: number }) => u.id === inactiveUser.id)).toBe(true);
+    expect(falseRes.body.data.every((u: { isActive: boolean }) => u.isActive === false)).toBe(true);
+
+    const trueRes = await request(app.getHttpServer())
+      .get('/users?isActive=true')
+      .set('x-api-key', apiKey)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .expect(200);
+    expect(trueRes.body.data.some((u: { id: number }) => u.id === inactiveUser.id)).toBe(false);
+    expect(trueRes.body.data.every((u: { isActive: boolean }) => u.isActive === true)).toBe(true);
+  });
+
   it('PATCH /users/:id/company com body {} (campo ausente) -> 400, nunca 500 (achado Qwen rodada 12, K4)', async () => {
     const res = await request(app.getHttpServer())
       .patch(`/users/${candidateId}/company`)

@@ -33,7 +33,32 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @ApiOperation({ summary: 'Listar usuários', description: 'Lista paginada, com filtros opcionais por papel, empresa e status ativo/inativo.' })
-  @ApiResponse({ status: 200, description: 'Lista paginada de usuários (sem senha/hash de token).' })
+  @ApiResponse({
+    status: 200,
+    description: 'Lista paginada de usuários (sem senha/hash de token).',
+    schema: {
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            properties: {
+              id: { type: 'integer' },
+              name: { type: 'string' },
+              email: { type: 'string' },
+              isActive: { type: 'boolean' },
+              roleId: { type: 'integer' },
+              companyId: { type: 'integer', nullable: true },
+              createdAt: { type: 'string', format: 'date-time' },
+              role: { properties: { name: { type: 'string' } } },
+            },
+          },
+        },
+        page: { type: 'integer' },
+        limit: { type: 'integer' },
+        total: { type: 'integer' },
+      },
+    },
+  })
   @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
   @ApiResponse({ status: 403, description: 'Sem a permissão `user:read`.' })
   @Permissions(PERMISSIONS.USER_READ)

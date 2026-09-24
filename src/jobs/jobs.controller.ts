@@ -10,7 +10,51 @@ import { Permissions } from '../common/decorators/permissions.decorator.js';
 import { Public } from '../common/decorators/public.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
+import { JobStatus } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
+
+// Achado Qwen rodada 15 (ressalva 1): nenhuma das 175 respostas do
+// documento tinha `schema` — o envelope de paginação e a distinção entre
+// campos de `PUBLIC_JOB_SELECT` (vitrine) e `SCOPED_JOB_INCLUDE`
+// (autenticado, com `filledCount`/`companyId`/`createdById`) não
+// apareciam em lugar nenhum. Espelha exatamente os `select`/`include` de
+// `jobs.service.ts`.
+const PUBLIC_JOB_ITEM_SCHEMA = {
+  properties: {
+    id: { type: 'integer' },
+    title: { type: 'string' },
+    description: { type: 'string' },
+    isRemote: { type: 'boolean' },
+    salaryMin: { type: 'integer', nullable: true },
+    salaryMax: { type: 'integer', nullable: true },
+    vacancies: { type: 'integer' },
+    status: { type: 'string', enum: Object.values(JobStatus) },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    closedAt: { type: 'string', format: 'date-time', nullable: true },
+    company: { properties: { id: { type: 'integer' }, name: { type: 'string' } } },
+  },
+} as const;
+
+const SCOPED_JOB_ITEM_SCHEMA = {
+  properties: {
+    ...PUBLIC_JOB_ITEM_SCHEMA.properties,
+    companyId: { type: 'integer' },
+    createdById: { type: 'integer' },
+    filledCount: { type: 'integer' },
+  },
+} as const;
+
+function paginated(itemSchema: object) {
+  return {
+    properties: {
+      data: { type: 'array', items: itemSchema },
+      page: { type: 'integer' },
+      limit: { type: 'integer' },
+      total: { type: 'integer' },
+    },
+  };
+}
 
 @ApiTags('Vagas')
 @ApiSecurity('api-key')
@@ -32,7 +76,7 @@ export class JobsController {
   }
 
   @ApiOperation({ summary: 'Listar vagas públicas (vitrine)', description: 'Só API key — sem autenticação de usuário. Lista apenas vagas com status `OPEN`.' })
-  @ApiResponse({ status: 200, description: 'Página de vagas abertas.' })
+  @ApiResponse({ status: 200, description: 'Página de vagas abertas — sem `companyId`/`createdById`/`filledCount` (não pertencem a uma vitrine pública).', schema: paginated(PUBLIC_JOB_ITEM_SCHEMA) })
   @ApiResponse({ status: 401, description: 'API key ausente/inválida.' })
   // Sem @Permissions: rota pública (só API key), lista só vagas OPEN —
   // é a "vitrine" de vagas, quem ainda nem se candidatou pode navegar.
@@ -43,7 +87,7 @@ export class JobsController {
   }
 
   @ApiOperation({ summary: 'Listar vagas da própria empresa', description: 'ADMIN vê de todas as empresas; RECRUITER só da própria. Qualquer status, com filtro opcional.' })
-  @ApiResponse({ status: 200, description: 'Página de vagas.' })
+  @ApiResponse({ status: 200, description: 'Página de vagas, com os campos internos (`companyId`, `createdById`, `filledCount`) que a vitrine pública omite.', schema: paginated(SCOPED_JOB_ITEM_SCHEMA) })
   @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
   @ApiResponse({ status: 403, description: 'Sem a permissão `job:read:any`.' })
   @ApiBearerAuth('jwt')
@@ -57,7 +101,7 @@ export class JobsController {
 
   @ApiOperation({ summary: 'Buscar vaga por ID', description: 'Vaga fora de `OPEN` só é visível para usuários da própria empresa dona da vaga (ou ADMIN).' })
   @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({ status: 200, description: 'Vaga encontrada e visível para o usuário.' })
+  @ApiResponse({ status: 200, description: 'Vaga encontrada e visível para o usuário.', schema: SCOPED_JOB_ITEM_SCHEMA })
   @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
   @ApiResponse({ status: 403, description: 'Sem a permissão `job:read`.' })
   @ApiResponse({ status: 404, description: 'Vaga inexistente, ou fora de `OPEN` e de empresa diferente da do usuário (anti-enumeração).' })

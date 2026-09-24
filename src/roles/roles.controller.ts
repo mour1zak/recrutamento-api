@@ -34,7 +34,7 @@ export class RolesController {
     return this.rolesService.findOne(id);
   }
 
-  @ApiOperation({ summary: 'Substituir as permissões de uma role', description: 'Substitui o conjunto inteiro (não incremental) dentro de uma transação `Serializable`. Bloqueado se resultar em zero roles com `role:manage` no sistema.' })
+  @ApiOperation({ summary: 'Substituir as permissões de uma role', description: 'Substitui o conjunto inteiro (não incremental), atomicamente. Bloqueado se resultar em zero roles com `role:manage` no sistema.' })
   @ApiParam({ name: 'id', type: Number })
   @ApiResponse({ status: 200, description: 'Permissões substituídas.' })
   @ApiResponse({ status: 400, description: 'Algum `permissionId` não existe.' })

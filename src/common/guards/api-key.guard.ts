@@ -1,6 +1,6 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { Injectable, UnauthorizedException, type CanActivate, type ExecutionContext } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { timingSafeApiKeyMatch } from '../utils/api-key.util.js';
 
 /**
  * Guard global (registrado como APP_GUARD) — camada de "cliente conhecido",
@@ -26,20 +26,10 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('API key não configurada no servidor.');
     }
 
-    if (typeof providedKey !== 'string' || !this.matches(providedKey, expectedKey)) {
+    if (typeof providedKey !== 'string' || !timingSafeApiKeyMatch(providedKey, expectedKey)) {
       throw new UnauthorizedException('API key ausente ou inválida.');
     }
 
     return true;
-  }
-
-  // Comparação em tempo constante (achado da auditoria Qwen: comparação
-  // ingênua com === vaza timing information sobre onde a string diverge).
-  // Hash de tamanho fixo antes de comparar evita lidar com strings de
-  // tamanhos diferentes, que o timingSafeEqual não aceita diretamente.
-  private matches(provided: string, expected: string): boolean {
-    const providedHash = createHash('sha256').update(provided).digest();
-    const expectedHash = createHash('sha256').update(expected).digest();
-    return timingSafeEqual(providedHash, expectedHash);
   }
 }

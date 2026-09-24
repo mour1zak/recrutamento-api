@@ -8,7 +8,51 @@ import { ListApplicationsQueryDto } from './dto/list-applications-query.dto.js';
 import { Permissions } from '../common/decorators/permissions.decorator.js';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import { PERMISSIONS } from '../common/constants/permissions.constants.js';
+import { ApplicationStatus } from '../generated/prisma/client.js';
 import type { AuthenticatedUser } from '../common/types/authenticated-user.js';
+
+// Achado Qwen rodada 15 (ressalva 1): espelha `toFullResponse`/
+// `toReducedResponse` de `applications.service.ts` — a distinção
+// completo × reduzido é a política de PII deste módulo (K5/K6, rodada
+// 12) e não aparecia em nenhum schema publicado.
+const FULL_APPLICATION_SCHEMA = {
+  properties: {
+    id: { type: 'integer' },
+    jobId: { type: 'integer' },
+    candidateId: { type: 'integer' },
+    status: { type: 'string', enum: Object.values(ApplicationStatus) },
+    coverLetter: { type: 'string', nullable: true },
+    resumeDocumentId: { type: 'integer', nullable: true },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    job: { properties: { id: { type: 'integer' }, title: { type: 'string' }, companyId: { type: 'integer' }, status: { type: 'string' }, vacancies: { type: 'integer' }, filledCount: { type: 'integer' } } },
+    candidate: { properties: { id: { type: 'integer' }, name: { type: 'string' } } },
+    resumeDocument: { nullable: true, properties: { id: { type: 'integer' }, filename: { type: 'string' }, mimeType: { type: 'string' }, sizeBytes: { type: 'integer' } } },
+  },
+} as const;
+
+const REDUCED_APPLICATION_SCHEMA = {
+  properties: {
+    id: { type: 'integer' },
+    jobId: { type: 'integer' },
+    status: { type: 'string', enum: Object.values(ApplicationStatus) },
+    coverLetter: { type: 'string', nullable: true },
+    resumeDocument: { nullable: true, properties: { id: { type: 'integer' }, filename: { type: 'string' }, mimeType: { type: 'string' }, sizeBytes: { type: 'integer' } } },
+    createdAt: { type: 'string', format: 'date-time' },
+    candidate: { properties: { id: { type: 'integer' }, name: { type: 'string' }, headline: { type: 'string', nullable: true }, skills: { type: 'array', items: { type: 'string' } } } },
+  },
+} as const;
+
+function paginated(itemSchema: object) {
+  return {
+    properties: {
+      data: { type: 'array', items: itemSchema },
+      page: { type: 'integer' },
+      limit: { type: 'integer' },
+      total: { type: 'integer' },
+    },
+  };
+}
 
 @ApiTags('Candidaturas')
 @ApiSecurity('api-key')
@@ -32,7 +76,7 @@ export class ApplicationsController {
   }
 
   @ApiOperation({ summary: 'Listar as próprias candidaturas', description: 'Só CANDIDATE.' })
-  @ApiResponse({ status: 200, description: 'Página de candidaturas do candidato autenticado.' })
+  @ApiResponse({ status: 200, description: 'Página de candidaturas do candidato autenticado — sempre completo (é o próprio dono).', schema: paginated(FULL_APPLICATION_SCHEMA) })
   @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
   @ApiResponse({ status: 403, description: 'Sem a permissão `application:read:own`.' })
   @Permissions(PERMISSIONS.APPLICATION_READ_OWN)
@@ -43,7 +87,7 @@ export class ApplicationsController {
 
   @ApiOperation({ summary: 'Listar candidaturas de uma vaga', description: 'RECRUITER/ADMIN da empresa dona da vaga.' })
   @ApiParam({ name: 'jobId', type: Number })
-  @ApiResponse({ status: 200, description: 'Página de candidaturas da vaga.' })
+  @ApiResponse({ status: 200, description: 'Página de candidaturas da vaga — sempre completo nesta listagem (a redução por status só se aplica em `GET /applications/:id`).', schema: paginated(FULL_APPLICATION_SCHEMA) })
   @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
   @ApiResponse({ status: 403, description: 'Sem a permissão `application:read:job`.' })
   @ApiResponse({ status: 404, description: 'Vaga não encontrada, ou de empresa diferente da do usuário.' })
@@ -59,7 +103,12 @@ export class ApplicationsController {
       'Sem `@Permissions()` de propósito: o guard só faz E entre permissões, mas esta rota aceita OU — `application:read:own` (o próprio candidato), `application:read:job` (recrutador/admin da vaga) ou `application:read:any`. A checagem "tem pelo menos uma" e a decisão de payload completo/reduzido ficam no Service: um recrutador vendo a candidatura de outra empresa, ou um candidato vendo a de outro, recebe `404` (anti-enumeração), não `403`.',
   })
   @ApiParam({ name: 'id', type: Number })
-  @ApiResponse({ status: 200, description: 'Candidatura encontrada — payload completo para o dono/recrutador da vaga/admin, reduzido para outros papéis autorizados a ver parcialmente.' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'O candidato dono e o ADMIN sempre recebem o payload COMPLETO. RECRUITER da empresa da vaga recebe o REDUZIDO (sem `candidateId`/`resumeDocumentId`, com `candidate.headline`/`skills` em vez do perfil inteiro) enquanto a candidatura está `PENDING`; volta a completo a partir de `UNDER_REVIEW`/`INTERVIEW`/`OFFERED`/`HIRED`.',
+    schema: { oneOf: [FULL_APPLICATION_SCHEMA, REDUCED_APPLICATION_SCHEMA] },
+  })
   @ApiResponse({ status: 401, description: 'API key ou JWT ausente/inválido.' })
   @ApiResponse({ status: 403, description: 'Usuário autenticado sem nenhuma das permissões de leitura de candidatura.' })
   @ApiResponse({ status: 404, description: 'Candidatura não encontrada, ou não visível para este usuário (anti-enumeração).' })

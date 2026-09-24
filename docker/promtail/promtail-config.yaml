@@ -19,3 +19,10 @@ scrape_configs:
         target_label: 'container'
     pipeline_stages:
       - docker: {}
+      # Remove códigos de cor ANSI (\x1b[32m, \x1b[39m, etc.) que o logger
+      # padrão do Nest imprime mesmo sem terminal interativo — sem isso, o
+      # texto armazenado no Loki fica com esse "lixo" no meio, quebrando
+      # qualquer extração de campo (pattern/regexp) nas consultas do Grafana.
+      - replace:
+          expression: '\x1b\[[0-9;]*m'
+          replace: ''

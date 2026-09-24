@@ -2,9 +2,9 @@
   "title": "Recrutamento API - Logs",
   "uid": "recrutamento-api-logs",
   "tags": ["recrutamento-api", "logs"],
-  "timezone": "browser",
+  "timezone": "America/Sao_Paulo",
   "schemaVersion": 39,
-  "version": 1,
+  "version": 3,
   "refresh": "10s",
   "time": { "from": "now-1h", "to": "now" },
   "panels": [
@@ -12,7 +12,7 @@
       "id": 1,
       "type": "logs",
       "title": "Logs da API (tempo real)",
-      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 0 },
+      "gridPos": { "h": 10, "w": 24, "x": 0, "y": 0 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
@@ -31,7 +31,7 @@
       "id": 2,
       "type": "timeseries",
       "title": "Volume de logs por minuto",
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 14 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 10 },
       "datasource": { "type": "loki", "uid": "loki" },
       "targets": [
         {
@@ -40,6 +40,76 @@
           "queryType": "range"
         }
       ]
+    },
+    {
+      "id": 3,
+      "type": "piechart",
+      "title": "Requisições por método HTTP",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 18 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (method) (count_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` [$__range]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      }
+    },
+    {
+      "id": 4,
+      "type": "piechart",
+      "title": "Requisições por status HTTP",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 18 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (status) (count_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` [$__range]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "legend": { "displayMode": "table", "placement": "right", "values": ["value", "percent"] }
+      }
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Total de requisições",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 18 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` [$__range]))",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"] },
+        "colorMode": "value",
+        "graphMode": "area"
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latência média (ms)",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 26 },
+      "datasource": { "type": "loki", "uid": "loki" },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "avg_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` | unwrap duration [1m])",
+          "queryType": "range"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": { "unit": "ms" }
+      }
     }
   ]
 }

@@ -41,6 +41,7 @@ services:
     ports:
       - "3001:3000"
     environment:
+      TZ: America/Sao_Paulo
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public

@@ -10,13 +10,43 @@ agora.
 |---|---|---|
 | C1 — `LoginDto.example` publicava credencial real do ADMIN do seed | `email` trocado pra `usuario@example.com`, `password` pra `SenhaForte@123` (mesmo padrão já usado em `RegisterDto`) — [`src/auth/dto/login.dto.ts`](../../src/auth/dto/login.dto.ts). Grep em `src/` confirmou que nenhum outro DTO tinha o mesmo problema (`admin@recrutamento.test`, `recrutador@recrutamento.test`, `candidato@recrutamento.test`, `Senha@123` — zero ocorrências fora do comentário que documenta a correção) | Teste e2e novo (`test/docs.e2e-spec.ts`) assertando que `GET /docs-json` autenticado **nunca** contém nenhum dos 4 valores reais — trava de regressão, não só correção pontual |
 
-## Decisão pedida — aceita: `/docs`/`/docs-json` atrás de `x-api-key`
+## Decisão pedida — implementada e depois REVERTIDA por decisão de produto
 
-| Item | Correção | Como validamos |
+Aceitamos inicialmente a recomendação do Qwen: `src/common/utils/api-key.util.ts`
+(`timingSafeApiKeyMatch()` extraído de `ApiKeyGuard`) +
+`src/common/middleware/docs-auth.middleware.ts` (middleware Express
+exigindo `x-api-key`, com fallback de `Authorization: Basic
+<usuário>:<x-api-key>` especificamente pra acionar o popup nativo de
+login do navegador, já que a barra de endereço não manda header
+customizado) + `src/common/swagger.config.ts` registrando o middleware
+antes de `SwaggerModule.setup()`. Chegou a passar por 8 testes e2e e foi
+confirmado funcionando ao vivo (curl, Supertest, e navegação real com
+credencial embutida na URL).
+
+**Revertido a pedido da dona do produto**, depois de ver o resultado na
+prática: o popup nativo de Basic Auth pede "usuário e senha" — campos que
+não existem conceitualmente neste projeto, só existe UMA chave
+compartilhada. Precisar explicar "digite qualquer coisa no usuário, a
+`x-api-key` na senha" foi considerado uma fricção de UX pior do que o
+risco residual que a Rodada 15 apontou, dado que a causa raiz de verdade
+(a credencial real vazada no `example`) já estava corrigida
+independentemente dessa decisão.
+
+**Estado final:** `docs-auth.middleware.ts` e `api-key.util.ts` foram
+removidos (arquivos sem uso viram código morto — `ApiKeyGuard` voltou a
+ter seu próprio método privado de comparação, já que não há mais um
+segundo consumidor). `/docs`/`/docs-json` estão públicos de novo, sem
+nenhuma credencial exigida. `info.description` em `swagger.config.ts`
+foi ajustado pra não afirmar mais "sem exceção" — agora diz
+explicitamente que `x-api-key` é obrigatória em toda rota de NEGÓCIO,
+com a própria documentação como exceção deliberada, exatamente como o
+Qwen pediu pra registrar caso a decisão final fosse manter público.
+
+| Item | Estado final | Como validamos |
 |---|---|---|
-| `/docs`, `/docs/`, `/docs-json` sem credencial | `src/common/utils/api-key.util.ts` (novo): `timingSafeApiKeyMatch()` extraído de `ApiKeyGuard` — mesmo algoritmo, agora com dois consumidores, um lugar só. `src/common/middleware/docs-auth.middleware.ts` (novo): middleware Express que compara a `x-api-key` com a mesma função, e no erro devolve exatamente `{statusCode:401, error:'Unauthorized', message:'API key ausente ou inválida.'}` + header `WWW-Authenticate: Bearer` — o mesmo formato que `GlobalExceptionFilter` já produz pro `ApiKeyGuard`, sem criar um segundo formato de erro. `src/common/swagger.config.ts` (novo, extraído de `main.ts`): registra o middleware em `/docs` e `/docs-json` ANTES de `SwaggerModule.setup()`. `main.ts` só chama `configureSwagger(app)` agora | `test/docs.e2e-spec.ts`, 6 testes: sem key → 401 em `/docs`, `/docs/` (barra final) e `/docs-json`; key errada → 401; key certa → 200 nos dois; mais a trava de regressão da credencial (acima) |
-| `ApiKeyGuard` duplicava o algoritmo de comparação | Refatorado pra usar `timingSafeApiKeyMatch()` do util novo, em vez de um método privado próprio — mesmo racional de `isCompanyOperable()`: um algoritmo sensível a timing com dois lugares diferentes é risco de divergência silenciosa | `npm test` (unitários de guards não quebraram) + `npm run test:e2e` completo |
-| `info.description` se autocontradizia | Texto do `x-api-key` em `swagger.config.ts` atualizado: "obrigatória em toda rota, sem exceção" agora é verdade, incluindo `/docs` | Leitura do documento publicado |
+| `/docs`, `/docs-json` sem credencial | Público de propósito (decisão revertida, ver acima) | `test/docs.e2e-spec.ts`: `GET /docs` e `GET /docs-json` sem nenhum header → `200` |
+| Credencial real vazada no `example` (a causa raiz) | Continua corrigida, independente da decisão de exposição | Mesmo teste: `GET /docs-json` nunca contém `admin@recrutamento.test`/`recrutador@recrutamento.test`/`candidato@recrutamento.test`/`Senha@123` |
+| `info.description` se autocontradizia | Corrigido pra descrever o estado real: obrigatória em toda rota de negócio, exceto a documentação | Leitura do documento publicado |
 
 ## Antes de fechar o bônus — corrigido nesta rodada
 
@@ -29,27 +59,37 @@ agora.
 
 ## Desejável — registrado, sem ação agora
 
-Ressalva 4 (sem `cache-control` em `/docs`/`/docs-json`) e ressalva 5
+Ressalva 4 (sem `cache-control` em `/docs`/`/docs-json`) volta a ser
+relevante já que `/docs` é público de novo — registrada em
+`FEEDBACKS-MELHORIA.md` como melhoria de baixo custo, não crítica (o
+documento não tem dado de usuário, só o contrato da API). Ressalva 5
 (descrição de escopo do `PACOTE-QWEN-SWAGGER.md` não citou a mudança no
-pool do `pg`, mesmo sendo bem-vinda) — registradas em
-`FEEDBACKS-MELHORIA.md`. A primeira perde relevância agora que `/docs`
-exige credencial; a segunda é uma lição de processo (descrever o escopo
-de um pacote com precisão), não algo que se corrija em código.
+pool do `pg`) é uma lição de processo, não algo que se corrija em código.
 
 ## Lição de processo registrada
 
-É a segunda vez que uma decisão de arquitetura ("`/docs` pode ficar
-público, é prática de mercado") não considerou que ESTA API já tinha
-decidido o oposto três vezes (CE-1) — o próprio texto publicado se
-contradizia. Regra pra qualquer decisão de exposição futura: antes de
-justificar por "prática comum de mercado", conferir se o projeto já tem
-uma decisão registrada que a prática comum contradiria.
+Duas lições desta rodada, de naturezas diferentes:
 
-## Verificação
+1. A decisão original ("`/docs` pode ficar público, é prática de
+   mercado") não considerou que ESTA API já tinha decidido o oposto três
+   vezes (CE-1) — o próprio texto publicado se contradizia. Regra pra
+   qualquer decisão de exposição futura: antes de justificar por "prática
+   comum de mercado", conferir se o projeto já tem uma decisão registrada
+   que a prática comum contradiria.
+2. A correção "certa" tecnicamente (exigir `x-api-key`) foi implementada,
+   testada e funcionou — e ainda assim foi revertida, porque o custo de
+   UX real (navegador pedindo "usuário/senha" pra uma chave sem conceito
+   de usuário) só ficou visível depois de ver o resultado funcionando de
+   verdade, não na hora de decidir no papel. Lição: pra decisões de UX de
+   segurança, vale prototipar e usar antes de assumir que "seguro" e
+   "utilizável" convergem sem atrito.
 
-Build limpo · lint 0 avisos (91 arquivos) · `npm test` **9/9** ·
-`npm run test:e2e` **158/158** (152 anteriores + 6 novos de
-`docs.e2e-spec.ts`) · nenhuma rota de negócio já auditada mudou de
-comportamento — só o middleware novo em `/docs`/`/docs-json`, a extração
-de `timingSafeApiKeyMatch()` (mesmo algoritmo, sem mudança de
-comportamento) e os `example`/`schema` do Swagger.
+## Verificação (estado final, após a reversão)
+
+Build limpo · lint 0 avisos · `npm test` **9/9** · `npm run test:e2e`
+**145/145** (`docs.e2e-spec.ts` ficou com 2 testes — `/docs` e
+`/docs-json` públicos, e a trava de regressão de credencial — no lugar
+dos 8 da versão com proteção completa) · confirmado ao vivo contra o
+servidor rodando: `GET /docs` → `200` sem nenhum header, `GET /docs-json`
+→ `200` sem nenhuma credencial real do seed no corpo · nenhuma rota de
+negócio já auditada mudou de comportamento.

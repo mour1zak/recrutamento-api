@@ -9,18 +9,18 @@ import { configureSwagger } from '../src/common/swagger.config.js';
 loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
 /**
- * Achado CRÍTICO Qwen rodada 15: `/docs`/`/docs-json` estavam fora do
- * `ApiKeyGuard` (o `SwaggerModule.setup()` monta a UI/spec como
- * middleware Express puro, fora do pipeline de guards do Nest) — um
- * anônimo lia o `openapi.json` completo sem nenhuma credencial. Corrigido
- * com `createDocsAuthMiddleware`, registrado via `configureSwagger()`.
- * Este teste replica exatamente essa função (a mesma usada em `main.ts`)
- * pra garantir que a proteção real está no lugar, não só uma versão de
- * teste dela.
+ * `/docs`/`/docs-json` são deliberadamente públicos (decisão final,
+ * revertendo a recomendação do Qwen na Rodada 15 — ver
+ * `docs/fases/TRIAGEM-REVISOES-RODADA15.md`): a alternativa com
+ * `x-api-key`/Basic Auth funcionava, mas a UX do popup nativo pedindo
+ * "usuário/senha" pra uma chave sem conceito de usuário ficou confusa
+ * demais pra valer a pena. O que continua valendo, independente dessa
+ * decisão, é a correção do achado que tornava a exposição pública
+ * perigosa: nenhum `example` do Swagger pode publicar uma credencial
+ * REAL do seed — é o que este teste trava.
  */
-describe('Docs auth (e2e)', () => {
+describe('Docs (e2e)', () => {
   let app: INestApplication<App>;
-  const apiKey = process.env.API_KEY!;
 
   beforeAll(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -33,37 +33,21 @@ describe('Docs auth (e2e)', () => {
     await app.close();
   });
 
-  it('GET /docs sem API key -> 401', () => {
-    return request(app.getHttpServer()).get('/docs').expect(401);
+  it('GET /docs sem nenhuma credencial -> 200 (público, decisão consciente)', () => {
+    return request(app.getHttpServer()).get('/docs').expect(200);
   });
 
-  it('GET /docs/ (barra final) sem API key -> 401', () => {
-    return request(app.getHttpServer()).get('/docs/').expect(401);
-  });
-
-  it('GET /docs-json sem API key -> 401', () => {
-    return request(app.getHttpServer()).get('/docs-json').expect(401);
-  });
-
-  it('GET /docs-json com API key errada -> 401', () => {
-    return request(app.getHttpServer()).get('/docs-json').set('x-api-key', 'chave-invalida').expect(401);
-  });
-
-  it('GET /docs-json com API key correta -> 200, sem credencial real nos examples', async () => {
-    const res = await request(app.getHttpServer()).get('/docs-json').set('x-api-key', apiKey).expect(200);
+  it('GET /docs-json sem nenhuma credencial -> 200, sem credencial real nos examples', async () => {
+    const res = await request(app.getHttpServer()).get('/docs-json').expect(200);
     const raw = JSON.stringify(res.body);
     // Achado crítico Qwen rodada 15 (bloqueante): o `example` de
     // `LoginDto` publicava o email e a senha reais do ADMIN do seed —
     // combinados, davam um token de administrador a quem lesse o
     // documento. Trava de regressão: nenhuma credencial real do seed
-    // pode aparecer em nenhum lugar do spec publicado.
+    // pode aparecer em nenhum lugar do spec publicado, público ou não.
     expect(raw).not.toContain('admin@recrutamento.test');
     expect(raw).not.toContain('recrutador@recrutamento.test');
     expect(raw).not.toContain('candidato@recrutamento.test');
     expect(raw).not.toContain('Senha@123');
-  });
-
-  it('GET /docs com API key correta -> 200 (UI do Swagger)', () => {
-    return request(app.getHttpServer()).get('/docs').set('x-api-key', apiKey).expect(200);
   });
 });

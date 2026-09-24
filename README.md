@@ -681,10 +681,10 @@ categoria (400/401/403/404/409). Substitua `SUA_API_KEY` pelo valor do
 seu `.env`; nunca cole a chave real aqui ou em qualquer lugar público
 (mesma razão pela qual o `example` do Swagger não usa credenciais reais).
 
-Sobre a senha `SenhaForte@123` nos exemplos de registro abaixo (e na
-coleção do Postman, `docs/postman/`): diferente do `example` estático do
-Swagger — mostrado a qualquer visitante sem contexto, por isso mascarado
-como `********` —, estes são comandos **feitos pra rodar de verdade**, e
+Sobre a senha `SenhaForte@123` nos exemplos de registro abaixo: diferente
+do `example` estático do Swagger — mostrado a qualquer visitante sem
+contexto, por isso mascarado como `********` —, estes são comandos
+**feitos pra rodar de verdade**, e
 por isso precisam de uma string sintaticamente válida. `SenhaForte@123`
 não é senha de nenhuma conta real (é sempre usada pra **criar** um
 candidato fictício novo, nunca pra logar numa conta existente); a política

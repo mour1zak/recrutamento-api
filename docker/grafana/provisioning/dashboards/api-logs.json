@@ -4,7 +4,7 @@
   "tags": ["recrutamento-api", "logs"],
   "timezone": "America/Sao_Paulo",
   "schemaVersion": 39,
-  "version": 3,
+  "version": 4,
   "refresh": "10s",
   "time": { "from": "now-1h", "to": "now" },
   "panels": [
@@ -50,7 +50,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (method) (count_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` [$__range]))",
+          "expr": "sum by (method) (count_over_time({container=\"recrutamento-api\"} |= `http_request` | regexp `(?P<json_line>\\{.*\\})` | line_format `{{.json_line}}` | json [$__range]))",
           "queryType": "range"
         }
       ],
@@ -67,7 +67,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (status) (count_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` [$__range]))",
+          "expr": "sum by (status) (count_over_time({container=\"recrutamento-api\"} |= `http_request` | regexp `(?P<json_line>\\{.*\\})` | line_format `{{.json_line}}` | json [$__range]))",
           "queryType": "range"
         }
       ],
@@ -84,7 +84,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(count_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` [$__range]))",
+          "expr": "sum(count_over_time({container=\"recrutamento-api\"} |= `http_request` | regexp `(?P<json_line>\\{.*\\})` | line_format `{{.json_line}}` | json [$__range]))",
           "queryType": "range"
         }
       ],
@@ -103,7 +103,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "avg_over_time({container=\"recrutamento-api\"} |= `[HTTP]` | regexp `\\[HTTP\\] (?P<method>\\S+) (?P<path>\\S+) (?P<status>\\d+) (?P<duration>\\d+)ms` | unwrap duration [1m])",
+          "expr": "avg_over_time({container=\"recrutamento-api\"} |= `http_request` | regexp `(?P<json_line>\\{.*\\})` | line_format `{{.json_line}}` | json | unwrap durationMs [1m])",
           "queryType": "range"
         }
       ],

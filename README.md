@@ -92,6 +92,15 @@ corrigido na frente de infraestrutura).
 
 ### 2.3 Além do pedido (diferenciais desta entrega)
 
+- **CORS habilitado** (`src/common/cors.config.ts`) — não exigido pelo
+  enunciado (que não previa um frontend consumindo a API), mas necessário
+  pra qualquer cliente rodando no navegador (porta diferente da API é
+  bloqueada pelo same-origin policy sem isso). `CORS_ORIGIN` no `.env`
+  restringe a origens específicas (lista separada por vírgula); sem a
+  variável, aceita qualquer origem — conveniente em desenvolvimento, e
+  seguro porque CORS não é a camada de autorização deste projeto (API key
+  + JWT continuam obrigatórios em toda rota de negócio independente de
+  quem pode chamar via navegador).
 - **`GET /companies/:id/stats`** — indicadores de negócio (bônus
   "indicadores do domínio", ver §2.2): vagas por status, funil de
   candidaturas por status, taxa de conversão e tempo médio até

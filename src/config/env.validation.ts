@@ -66,6 +66,11 @@ export const envValidationSchema = Joi.object({
 
   UPLOAD_DIR: Joi.string().default('uploads'),
   MAX_UPLOAD_SIZE_MB: Joi.number().positive().default(5),
+
+  // Opcional — sem ela, `main.ts` aceita qualquer origem no CORS
+  // (conveniente em dev; a API key + JWT continuam obrigatórios em toda
+  // rota de negócio, CORS não é a camada de autorização deste projeto).
+  CORS_ORIGIN: Joi.string().allow('').optional(),
 })
   .custom((value, helpers) => {
     // JWT_SECRET e API_KEY têm papéis diferentes (identidade de usuário x

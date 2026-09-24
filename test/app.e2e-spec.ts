@@ -4,6 +4,7 @@ import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from './../src/app.module.js';
+import { configureCors } from '../src/common/cors.config.js';
 
 loadEnv({ path: process.env.NODE_ENV === 'test' ? '.env.test' : '.env' });
 
@@ -19,6 +20,7 @@ describe('AppController (e2e)', () => {
     }).compile();
 
     app = moduleFixture.createNestApplication();
+    configureCors(app);
     await app.init();
   });
 
@@ -34,6 +36,18 @@ describe('AppController (e2e)', () => {
       .expect(({ body }) => {
         if (body.status !== 'ok') throw new Error('esperado status "ok"');
       });
+  });
+
+  // Achado da auditoria final, pré-frontend: nenhum CORS estava
+  // configurado — qualquer frontend rodando no navegador (porta
+  // diferente da API) seria bloqueado pelo same-origin policy antes
+  // mesmo de a requisição chegar aqui. `origin: true` (sem `CORS_ORIGIN`
+  // no ambiente de teste) reflete a origem enviada de volta no header.
+  it('responde com Access-Control-Allow-Origin (CORS habilitado pro frontend)', async () => {
+    const res = await request(app.getHttpServer()).get('/health').set('x-api-key', process.env.API_KEY!).set('Origin', 'http://localhost:5173').expect(200);
+    if (res.headers['access-control-allow-origin'] !== 'http://localhost:5173') {
+      throw new Error(`esperado Access-Control-Allow-Origin refletindo a origem, veio "${res.headers['access-control-allow-origin']}"`);
+    }
   });
 
   afterEach(async () => {

@@ -38,9 +38,14 @@ describe('RolesService.updatePermissions — trava "sem papel com role:manage"',
     const prisma = buildPrismaMock(0);
     const service = new RolesService(prisma as never);
 
-    const error: ConflictException = await service.updatePermissions(1, [10]).catch((e: unknown) => e as ConflictException);
+    let error: ConflictException | undefined;
+    try {
+      await service.updatePermissions(1, [10]);
+    } catch (e) {
+      error = e as ConflictException;
+    }
     expect(error).toBeInstanceOf(ConflictException);
-    expect(error.getResponse()).toMatchObject({ reason: 'sem_papel_com_role_manage' });
+    expect(error?.getResponse()).toMatchObject({ reason: 'sem_papel_com_role_manage' });
     expect(prisma.__tx.rolePermission.deleteMany).not.toHaveBeenCalled();
   });
 

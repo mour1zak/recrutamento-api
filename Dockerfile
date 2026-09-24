@@ -15,7 +15,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm install -g npm@12.0.2
-RUN npm ci --omit=dev && npm cache clean --force
+RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 COPY --from=build /app/dist ./dist
 RUN mkdir -p /app/uploads && chown -R node:node /app/uploads
 

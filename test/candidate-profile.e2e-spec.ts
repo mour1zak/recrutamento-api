@@ -2,7 +2,7 @@ import { config as loadEnv } from 'dotenv';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
+import type { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { SYSTEM_ROLES } from '../src/common/constants/permissions.constants.js';
@@ -273,7 +273,7 @@ describe('CandidateProfile (e2e)', () => {
     });
 
     it('candidatura em INTERVIEW/OFFERED/HIRED -> RECRUITER vê COMPLETO (completa a matriz do predicado)', async () => {
-      for (const status of ['INTERVIEW', 'OFFERED', 'HIRED']) {
+      for (const status of ['INTERVIEW', 'OFFERED', 'HIRED'] as const) {
         await prisma.application.updateMany({ where: { jobId, candidateId: candidateAId }, data: { status } });
         const res = await request(app.getHttpServer())
           .get(`/candidates/${candidateAId}`)

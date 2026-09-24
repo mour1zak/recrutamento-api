@@ -16,11 +16,21 @@ negativas) com o resultado exato esperado.
 
 ### 0.1 Subir a API e abrir o Swagger
 
+Pra estudo/treino do dia a dia, a instância nativa basta:
+
 ```bash
 npm run start:dev
 ```
 
 Abrir `http://localhost:3000/docs` no navegador.
+
+**Se a intenção for demonstrar o Grafana ao vivo enquanto testa** (achado
+da revisão final — ver README §4.9): use a instância **Docker**
+(`./docker/compose.sh up -d --build`, Swagger em
+`http://localhost:3001/docs`) em vez da nativa. O Promtail só coleta log
+de container Docker — testar na `3000` nunca aparece no Grafana, mesmo
+com tudo funcionando corretamente (não é bug, é a arquitetura). Os dois
+ambientes têm banco/seed/`API_KEY` próprios e independentes.
 
 ### 0.2 Aplicar a API key (sempre obrigatória, em toda rota)
 

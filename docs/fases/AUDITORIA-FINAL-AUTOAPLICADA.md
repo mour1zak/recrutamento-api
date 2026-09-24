@@ -78,7 +78,12 @@ ordem com `sortOrder=asc` vs. o padrão (`desc`).
 
 - **163 testes automatizados, todos verdes** (9 unitários + 154 e2e) —
   152 anteriores + 2 (`sortOrder`) + 4 (`stats`), menos correções de
-  contagem ao longo do caminho.
+  contagem ao longo do caminho. **Nota posterior (achado do Qwen na
+  Revisão Definitiva):** rodadas seguintes (CORS, senha mascarada)
+  adicionaram mais testes — o número atual e correto é **164 (9 + 155)**,
+  confirmado no README e em `docs/fases/PARECER-QWEN-REVISAO-DEFINITIVA.md`.
+  Este documento é histórico (registro do estado NO MOMENTO desta rodada),
+  não atualizado retroativamente.
 - **43 endpoints** (41 do mapa original + `GET /cep/:cep` +
   `GET /companies/:id/stats`), todos com `@ApiOperation`/`@ApiResponse`
   no Swagger.

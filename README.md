@@ -12,12 +12,12 @@
 > invariantes de `Job.filledCount`/`vacancies` validadas dentro da mesma
 > transação, `CHECK` de banco, trigger de auditoria (`updatedAt`) em UTC,
 > índice único case-insensitive de `User.email`, e pool de conexão do
-> `pg` com timeout explícito. **163 testes automatizados verdes** (9
-> unitários + 154 e2e).
+> `pg` com timeout explícito. **164 testes automatizados verdes** (9
+> unitários + 155 e2e).
 >
 > **Todos os itens de bônus do enunciado concluídos:** paginação, filtros
 > e ordenação configurável (`?sortOrder=asc|desc`) em toda listagem;
-> Seed; testes automatizados (163, muito além do mínimo); Docker
+> Seed; testes automatizados (164, muito além do mínimo); Docker
 > (multi-stage, Postgres, migrations automáticas); indicadores do domínio
 > (`GET /companies/:id/stats` — vagas por status, funil de candidaturas,
 > taxa de conversão, tempo médio até contratação, além da observabilidade
@@ -77,7 +77,7 @@ deixamos isso implícito no código._
 | Item | Status |
 |---|---|
 | Paginação/filtros/ordenação | 🟢 `?page&limit` em toda listagem (`PaginationQueryDto` compartilhado); filtros por status/role/companyId/isActive já existem nas listagens que fazem sentido; **ordenação configurável** via `?sortOrder=asc\|desc` (o campo continua fixo por listagem — `createdAt` na maioria, `id` em `GET /users` — por escolha deliberada: aceitar um nome de coluna arbitrário via query string abriria uma superfície de risco desnecessária) |
-| Testes automatizados | 🟢 163 testes (9 unitários + 154 e2e), muito além do mínimo — já contam como bônus mesmo sendo também ferramenta de auditoria |
+| Testes automatizados | 🟢 164 testes (9 unitários + 155 e2e), muito além do mínimo — já contam como bônus mesmo sendo também ferramenta de auditoria |
 | Seed | 🟢 `prisma/seed.ts` — catálogo de permissões, papéis, um usuário de cada papel |
 | **Docker** | 🟢 **Concluído e verificado por execução** — `Dockerfile` multi-stage (deps/build/runtime, usuário não-root), `docker/compose.dev.yml` (API + Postgres + migrations automáticas via `prisma migrate deploy`), volumes persistentes (Postgres + uploads, com permissão corrigida pro usuário `node`), porta da API mapeada em `3001` (não conflita com o dev local em `3000`) |
 | **Observabilidade (infraestrutura)** | 🟢 **Concluída** — `docker/compose.obs.yml` com Loki + Promtail + Grafana, dashboard provisionado automaticamente filtrando os logs do container da API (`container="recrutamento-api"`), confirmado recebendo os logs do `LoggingInterceptor`/`GlobalExceptionFilter` em tempo real |
@@ -158,11 +158,17 @@ corrigido na frente de infraestrutura).
 
 - **`npm audit` reporta 4 vulnerabilidades "high"** em `mysql2`/
   `deepmerge-ts` — são dependências transitivas do **driver MySQL que vem
-  dentro do pacote `prisma` (CLI)**, mesmo usando só PostgreSQL. São
-  `devDependencies` (não entram no build de produção). `npm audit fix
-  --force` resolveria rebaixando para `prisma@6.19.3`, o que quebraria o
-  requisito explícito do enunciado (Prisma **7.10.0**) — por isso não foi
-  aplicado.
+  dentro do pacote `prisma` (CLI)**, mesmo usando só PostgreSQL. `prisma`
+  é `devDependency` direta do projeto, mas também é **peer dependency
+  opcional de `@prisma/client`** — e o npm instala peer deps opcionais
+  por padrão. Na prática isso significa que um `npm ci --omit=dev`
+  sozinho **ainda instala `prisma`** na imagem de produção (confirmado:
+  `npm audit --omit=dev` continua acusando as 4 vulnerabilidades). Por
+  isso o `Dockerfile` usa `npm ci --omit=dev --omit=optional` no estágio
+  de runtime, o que exclui `prisma` de vez (`npm audit --omit=dev
+  --omit=optional` dá 0 vulnerabilidades). `npm audit fix --force`
+  resolveria rebaixando para `prisma@6.19.3`, o que quebraria o requisito
+  explícito do enunciado (Prisma **7.10.0**) — por isso não foi aplicado.
 - Rate limiting em `/auth/login` — decisão pendente (`@nestjs/throttler`
   já instalado, guard não conectado).
 
@@ -231,11 +237,13 @@ peças que o enunciado exige por nome, com a versão que este projeto usa:
 | `@nestjs/swagger` | `^12.0.2` | `src/common/swagger.config.ts` |
 | `class-validator`/`class-transformer` | `^0.15.1`/`^0.5.1` | DTOs em todo `src/**/dto/` |
 
-**`DATABASE_URL` é obrigatório para qualquer comando do Prisma, inclusive
-`prisma generate`** — mesmo sem um banco alcançável, a variável precisa
-existir (um valor qualquer, mesmo apontando pra um banco que não existe,
-é suficiente só para gerar o client). Em CI, defina um `DATABASE_URL`
-dummy antes de `npm run build`.
+`prisma generate` **não** exige um `DATABASE_URL` real: `prisma.config.ts`
+tem um fallback (`postgresql://placeholder:placeholder@...`) usado quando
+a variável não existe, já que gerar o client só lê o schema, sem tocar o
+banco. Comandos que **conectam de verdade** (`migrate`, `db push`,
+`db seed`) precisam de um `DATABASE_URL` real e apontando para um banco
+alcançável — sem isso, falham com um erro de conexão no momento em que
+tentam usá-lo.
 
 ### 4.2 Banco de dados
 
@@ -390,14 +398,15 @@ npm test        # unitários
 npm run test:e2e
 ```
 
-**158 testes automatizados, todos verdes** (149 e2e em
+**164 testes automatizados, todos verdes** (155 e2e em
 `test/app.e2e-spec.ts` + `test/auth.e2e-spec.ts` +
-`test/companies.e2e-spec.ts` + `test/jobs.e2e-spec.ts` +
+`test/companies.e2e-spec.ts` + `test/company-stats.e2e-spec.ts` +
+`test/jobs.e2e-spec.ts` +
 `test/candidate-profile.e2e-spec.ts` + `test/applications.e2e-spec.ts` +
 `test/interviews.e2e-spec.ts` + `test/documents.e2e-spec.ts` +
 `test/users.e2e-spec.ts` + `test/roles.e2e-spec.ts` +
 `test/gate-fase3.e2e-spec.ts` + `test/docs.e2e-spec.ts` +
-`test/cep.e2e-spec.ts`, 9 unitários em `src/app.controller.spec.ts` +
+`test/cep.e2e-spec.ts` (14 arquivos), 9 unitários em `src/app.controller.spec.ts` +
 `src/common/cep/cep.service.spec.ts` + `src/roles/roles.service.spec.ts` +
 `src/common/interceptors/logging.interceptor.spec.ts`), cobrindo os
 cenários obrigatórios de auth (400/401/409, fluxo completo de registro/
@@ -456,7 +465,7 @@ http://localhost:3000/docs
 
 Pública de propósito — não pede `x-api-key` nem login (decisão de
 produto registrada em `docs/fases/TRIAGEM-REVISOES-RODADA15.md`). Lista
-os 42 endpoints em 11 tags em português, com o schema de cada DTO,
+os 43 endpoints em 11 tags em português, com o schema de cada DTO,
 todos os códigos HTTP que cada rota realmente retorna, e o botão
 **Authorize** pronto pra testar de verdade: cole a `x-api-key` do seu
 `.env` no campo `api-key`, e um `accessToken` obtido em `POST /auth/login`
@@ -471,6 +480,35 @@ Credenciais de teste (seed): `admin@recrutamento.test`,
 `recrutador@recrutamento.test`, `candidato@recrutamento.test`, senha
 `Senha@123` (ou o valor de `SEED_USER_PASSWORD` no seu `.env`, se tiver
 definido um).
+
+### 4.9 Docker + Observabilidade (bônus)
+
+Sobe a API + Postgres + Loki + Promtail + Grafana num único comando,
+tudo em containers, isolado do ambiente nativo dos passos 4.1-4.8:
+
+```bash
+cp docker/.env.example docker/.env
+# edite docker/.env com segredos próprios (nunca reaproveite os do .env nativo)
+./docker/compose.sh up -d --build
+```
+
+- API (com Swagger): `http://localhost:3001/docs`
+- Grafana: `http://localhost:3002` (login: `GRAFANA_ADMIN_USER`/
+  `GRAFANA_ADMIN_PASSWORD` do `docker/.env`)
+
+**Importante — leia antes de demonstrar o Grafana ao vivo:** o Grafana
+só reflete o tráfego que bate na **API Dockerizada** (`:3001`). A API
+nativa do dia a dia (`:3000`, passos 4.1-4.8 acima) não tem nenhum
+coletor de log apontado pra ela — não existe hoje um agente rodando no
+ambiente nativo enviando log pro Loki. Testar no Swagger da porta `3000`
+enquanto se observa o Grafana **não vai aparecer nada** (não é bug, é a
+arquitetura: Promtail só lê containers Docker). **Pra qualquer
+demonstração ao vivo com Grafana, use sempre o Swagger da porta `3001`
+(a instância Docker), não a `3000`.**
+
+Os dois ambientes são independentes: bancos diferentes, seeds diferentes,
+`API_KEY`/`JWT_SECRET` diferentes (os do `docker/.env`, não os do `.env`
+nativo). Um token/chave gerado num ambiente não funciona no outro.
 
 ## 5. Endpoints
 

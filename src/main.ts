@@ -22,17 +22,14 @@ async function bootstrap() {
   );
 
   // Bônus (item obrigatório do enunciado não é — documentação viva da
-  // API). Decisão REVERTIDA na rodada 15 (achado crítico Qwen): `/docs`
-  // tinha ficado fora do `ApiKeyGuard` global, tratada como documentação
-  // pública. Isso contradizia o próprio `info.description` ("x-api-key
-  // obrigatória em toda rota, sem exceção" — CE-1) e expunha o mapa
-  // completo de 41 rotas/17 schemas/24 permission keys/15 `reason` codes
-  // sem nenhuma credencial. `SwaggerModule.setup()` monta a UI/spec como
-  // middleware Express puro, fora do pipeline de guards do Nest — por
-  // isso a proteção (`configureSwagger`, `src/common/swagger.config.ts`)
-  // é um middleware dedicado exigindo a mesma `x-api-key` (não JWT —
-  // documentação não é ação de usuário autenticado, e exigir Bearer
-  // tornaria o bootstrapping circular).
+  // API). `/docs`/`/docs-json` ficam fora do `ApiKeyGuard` global e são
+  // públicos por decisão consciente (não um descuido): a alternativa com
+  // `x-api-key`/Basic Auth funcionava, mas a UX do popup nativo de login
+  // pra uma chave sem conceito de usuário ficou confusa demais pra valer
+  // a pena. O que protege de verdade essa decisão é que nenhum `example`
+  // do Swagger publica uma credencial real do seed. Histórico completo
+  // da decisão em `src/common/swagger.config.ts` e
+  // `docs/fases/TRIAGEM-REVISOES-RODADA15.md`.
   configureSwagger(app);
 
   await app.listen(process.env.PORT ?? 3000);

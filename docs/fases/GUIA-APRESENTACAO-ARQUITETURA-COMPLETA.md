@@ -312,9 +312,19 @@ três fazem, cada um uma etapa:
 - **Loki** — "banco de dados de log": guarda tudo, indexado por label
   (`container="recrutamento-api"`), pra consulta rápida depois.
 - **Grafana** — "vitrine": os dashboards que leem do Loki e desenham
-  gráfico. Painéis atuais: logs em tempo real, volume por minuto, e (em
-  ajuste na reta final) requisições por método/status HTTP e latência
-  média.
+  gráfico. 6 painéis: logs em tempo real, volume por minuto, requisições
+  por método HTTP (pizza), por status HTTP (pizza), total de requisições,
+  e latência média — todos já consultando o formato JSON estruturado
+  (`| json` no LogQL, não mais regex em texto solto).
+
+**Importante pra demonstrar isso ao vivo — não é `http://localhost:3000`:**
+o Promtail só coleta log de container Docker. A API nativa do dia a dia
+(porta `3000`) não passa por ele. Pra qualquer clique no Swagger aparecer
+no Grafana em tempo real, use a instância **Dockerizada**, em
+`http://localhost:3001/docs` (ver README §4.9) — não a `3000`. Testar na
+`3000` e esperar ver algo no Grafana é o erro mais fácil de cometer numa
+apresentação ao vivo (acontece de forma silenciosa: nenhum erro aparece,
+o painel só fica vazio).
 
 **Ponto pra mencionar na apresentação (mostra maturidade):** o formato do
 log da aplicação mudou de texto livre pra JSON estruturado
@@ -383,7 +393,11 @@ resultado — sem precisar mostrar uma linha de código:
    recrutamento com 3 papéis e regras de concorrência."
 2. **Mostre a arquitetura em camadas** (§2) — desenhe ou aponte o
    diagrama dos 4 guards/interceptor, explique a ORDEM.
-3. **Abra o Swagger** — mostre os 43 endpoints agrupados por tag em
+3. **Abra o Swagger** — use a instância Docker (`http://localhost:3001/docs`,
+   ver README §4.9), não a nativa (`3000`): assim os passos 4-8 batem no
+   MESMO ambiente que o Grafana do passo 8 está observando (evita mostrar
+   uma vaga/candidatura criada num banco e o Grafana vazio porque estava
+   olhando o outro). Mostre os 43 endpoints agrupados por tag em
    português, aponte o botão Authorize funcionando.
 4. **Demonstre o RBAC dinâmico ao vivo** (§4) — tire uma permissão de
    RECRUITER via `PUT /roles/:id/permissions`, mostre o `403` aparecer
@@ -396,8 +410,9 @@ resultado — sem precisar mostrar uma linha de código:
    (`409`), ou o payload condicional de perfil (reduzido → completo).
 7. **Mostre anti-enumeração** — tente acessar recurso de outra empresa,
    aponte o `404` (não `403`) e explique por quê.
-8. **Abra o Grafana** (§9) — logs em tempo real enquanto você clica no
-   Swagger, mostre a linha JSON aparecendo.
+8. **Abra o Grafana** (`http://localhost:3002`, §9) — logs em tempo real
+   enquanto você clica no MESMO Swagger do passo 3 (`:3001`), mostre a
+   linha JSON aparecendo.
 9. **Feche com o checklist** (§12) — obrigatório 100%, bônus 100%,
    mais os extras — e o porquê de cada extra ter valido a pena.
 

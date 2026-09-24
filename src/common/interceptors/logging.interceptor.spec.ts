@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Logger, type CallHandler, type ExecutionContext } from '@nestjs/common';
 import { of, throwError, lastValueFrom } from 'rxjs';
-import { HTTP_LOG_WRITTEN, LoggingInterceptor } from './logging.interceptor.js';
+import { HTTP_REQUEST_START, LoggingInterceptor } from './logging.interceptor.js';
 
 function buildContext(overrides?: { userId?: number; statusCode?: number }) {
   const request: Record<string | symbol, unknown> = { method: 'GET', originalUrl: '/jobs/1', user: overrides?.userId ? { id: overrides.userId } : undefined };
@@ -28,7 +28,7 @@ describe('LoggingInterceptor', () => {
     expect(result).toEqual({ id: 1 });
   });
 
-  it('loga método, rota, status e id do usuário quando autenticado (JSON estruturado), e marca a requisição', async () => {
+  it('loga método, rota, status e id do usuário quando autenticado (JSON estruturado), e marca o início da requisição', async () => {
     const logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     const interceptor = new LoggingInterceptor();
     const { context, request } = buildContext({ userId: 42, statusCode: 200 });
@@ -40,23 +40,28 @@ describe('LoggingInterceptor', () => {
     const logged = JSON.parse(logSpy.mock.calls[0][0] as string);
     expect(logged).toMatchObject({ event: 'http_request', method: 'GET', route: '/jobs/1', status: 200, userId: 42 });
     expect(typeof logged.durationMs).toBe('number');
-    // Achado da auditoria final: o filtro global pula a própria linha
-    // quando encontra esta marca, pra não duplicar o log de erros de
-    // negócio que passam pelo interceptor.
-    expect(request[HTTP_LOG_WRITTEN]).toBe(true);
+    // Achado crítico da revisão final: o `GlobalExceptionFilter` usa a
+    // PRESENÇA desta marca (não um valor booleano — o timestamp real) pra
+    // saber se uma requisição que terminou em erro passou pelos guards
+    // (LOG, com duração) ou foi rejeitada antes de chegar aqui (WARN, sem
+    // duração).
+    expect(typeof request[HTTP_REQUEST_START]).toBe('number');
     logSpy.mockRestore();
   });
 
-  it('propaga o erro adiante (não engole exceção) e ainda assim loga, sem `userId` quando anônimo', async () => {
+  it('em erro, NÃO loga (a auditoria final achou o interceptor logando o status ERRADO de erros traduzidos pelo filtro) — mas marca o início mesmo assim', async () => {
     const logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
     const interceptor = new LoggingInterceptor();
-    const { context } = buildContext({ statusCode: 404 });
-    const handler: CallHandler = { handle: () => throwError(() => new Error('não encontrado')) };
+    const { context, request } = buildContext({ statusCode: 201 }); // status "padrão" que o Nest atribuiria a um POST antes do erro
+    const handler: CallHandler = { handle: () => throwError(() => new Error('conflito de negócio, ex.: CNPJ duplicado')) };
 
-    await expect(lastValueFrom(interceptor.intercept(context, handler))).rejects.toThrow('não encontrado');
-    const logged = JSON.parse(logSpy.mock.calls[0][0] as string);
-    expect(logged).toMatchObject({ event: 'http_request', method: 'GET', route: '/jobs/1', status: 404 });
-    expect(logged.userId).toBeUndefined();
+    await expect(lastValueFrom(interceptor.intercept(context, handler))).rejects.toThrow();
+
+    // O ponto do achado: o interceptor NUNCA deveria ter logado "201" (ou
+    // qualquer status) pra este erro — só o GlobalExceptionFilter, depois
+    // de traduzir a exceção, sabe o status final de verdade.
+    expect(logSpy).not.toHaveBeenCalled();
+    expect(typeof request[HTTP_REQUEST_START]).toBe('number');
     logSpy.mockRestore();
   });
 });

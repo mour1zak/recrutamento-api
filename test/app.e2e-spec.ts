@@ -2,7 +2,7 @@ import { config as loadEnv } from 'dotenv';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
+import type { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
 import { configureCors } from '../src/common/cors.config.js';
 

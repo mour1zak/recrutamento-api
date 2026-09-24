@@ -3,7 +3,7 @@ import { config as loadEnv } from 'dotenv';
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
-import { App } from 'supertest/types';
+import type { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
 import { SYSTEM_ROLES } from '../src/common/constants/permissions.constants.js';

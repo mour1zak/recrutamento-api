@@ -3,7 +3,7 @@ import { BaseExceptionFilter } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { Prisma } from '../../generated/prisma/client.js';
 import { STATUS_TEXT } from '../exceptions/error-body.util.js';
-import { HTTP_LOG_WRITTEN } from '../interceptors/logging.interceptor.js';
+import { HTTP_REQUEST_START } from '../interceptors/logging.interceptor.js';
 
 // Nome real da constraint (ver migration.sql) -> rótulo amigável. Nunca
 // devolver o nome cru do índice pro cliente — isso divulga estrutura
@@ -110,13 +110,16 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
   // Achado (R1): guards (ApiKeyGuard/JwtAuthGuard/PermissionsGuard) rodam
   // ANTES de qualquer interceptor no pipeline do Nest — uma rejeição
   // deles (401/403), ou uma rota inexistente (404 do router), nunca passa
-  // pelo `LoggingInterceptor`, então ficava sem NENHUMA linha de log,
-  // mesmo a documentação afirmando "loga toda requisição". É exatamente o
-  // tráfego mais relevante pra um log de segurança (brute-force,
-  // sondagem de 403, varredura de rotas). Este filtro é o único ponto
-  // que enxerga essas exceções antes de qualquer interceptor — loga aqui,
-  // em `WARN` (reservado pra rejeição de guard/rota, nunca erro de
-  // negócio comum — ver `logRejection` abaixo).
+  // pelo `LoggingInterceptor`. Achado da revisão final: este filtro é,
+  // hoje, a ÚNICA fonte de verdade pra log de QUALQUER erro (não só
+  // rejeição de guard) — só ele sabe o status FINAL depois de traduzir
+  // uma exceção (Prisma, conflito de transação, `PayloadTooLargeException`
+  // viram um status diferente do que a exceção original carrega; o
+  // interceptor, mais cedo no pipeline, não tem como saber isso). Nível
+  // do log decidido em `logRejection`: `LOG` se a requisição passou pelos
+  // guards (erro de negócio comum, ex.: `404`/`409` de Service), `WARN`
+  // se não passou (rejeição de guard/rota — o tráfego de segurança que
+  // motivou originalmente logar isso aqui).
   private readonly logger = new Logger('HTTP');
 
   catch(exception: unknown, host: ArgumentsHost) {
@@ -167,28 +170,44 @@ export class GlobalExceptionFilter extends BaseExceptionFilter {
     // Qualquer outra coisa (HttpException normais lançadas pelos nossos
     // Services, `ForbiddenException` do PermissionsGuard, rota
     // inexistente, ou erro realmente desconhecido) segue o comportamento
-    // padrão do Nest. `logRejection` só escreve linha se o
-    // `LoggingInterceptor` ainda não tiver logado esta requisição — o que
-    // só acontece pra exceção de guard (nunca passa pelo interceptor) ou
-    // rota inexistente (nunca chega a um handler).
+    // padrão do Nest. `exception.getStatus()` aqui já é o status FINAL
+    // pra uma `HttpException` comum (diferente de `response.statusCode`
+    // no interceptor, que naquele ponto do pipeline ainda reflete o
+    // status PADRÃO da rota, não o que será de fato enviado).
     const fallbackStatus = exception instanceof HttpException ? exception.getStatus() : HttpStatus.INTERNAL_SERVER_ERROR;
     this.logRejection(host, fallbackStatus);
     super.catch(exception, host);
   }
 
   private logRejection(host: ArgumentsHost, status: number): void {
-    const request = host.switchToHttp().getRequest<Request & { [HTTP_LOG_WRITTEN]?: boolean }>();
-    // Achado da auditoria final: sem esta checagem, todo erro de negócio
-    // lançado por um Service (que PASSA pelo `LoggingInterceptor`) gerava
-    // DUAS linhas pra mesma requisição — uma em `LOG` aqui, outra em
-    // `WARN` no filtro, mesma informação, log duplicado real (não só
-    // hipotético — medido: `GET /companies/999999` gerava as duas linhas
-    // toda vez). Agora só rejeição de guard/rota (que nunca chega ao
-    // interceptor) escreve aqui.
-    if (request[HTTP_LOG_WRITTEN]) {
-      return;
+    const request = host.switchToHttp().getRequest<Request & { [HTTP_REQUEST_START]?: number; user?: { id?: number } }>();
+    // Achado crítico da revisão final: a versão anterior deixava o
+    // `LoggingInterceptor` logar erros também, com o status ERRADO
+    // (medido ao vivo: `409 cnpj_duplicado` aparecia como `"status":201`;
+    // `400 arquivo_excede_tamanho_maximo` aparecia como `"status":413`) —
+    // e o filtro pulava a própria linha (correta) por achar que já tinha
+    // sido logada. Agora o filtro é a única fonte de verdade pra QUALQUER
+    // erro, e usa a presença de `HTTP_REQUEST_START` (só existe se a
+    // requisição passou pelos guards e chegou ao `LoggingInterceptor`)
+    // pra decidir nível e duração: passou pelos guards = erro de negócio
+    // comum (`LOG`, com duração real); não passou = rejeição de guard ou
+    // rota inexistente (`WARN`, sem duração — nunca chegou a começar a
+    // ser medida).
+    const start = request[HTTP_REQUEST_START];
+    const passedGuards = start !== undefined;
+    const body: Record<string, unknown> = { event: 'http_request', method: request.method, route: request.originalUrl, status };
+    // `request.user` só existe se o JwtAuthGuard já rodou (a mesma
+    // condição que `passedGuards` cobre) — mas checar de novo aqui é
+    // barato e evita acoplar as duas condições sem necessidade.
+    if (request.user?.id) {
+      body.userId = request.user.id;
     }
-    this.logger.warn(JSON.stringify({ event: 'http_request', method: request.method, route: request.originalUrl, status }));
+    if (passedGuards) {
+      body.durationMs = Date.now() - start;
+      this.logger.log(JSON.stringify(body));
+    } else {
+      this.logger.warn(JSON.stringify(body));
+    }
   }
 
   private respond(host: ArgumentsHost, status: number, message: string, reason?: string) {

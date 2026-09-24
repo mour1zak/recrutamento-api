@@ -15,12 +15,21 @@ import { ConfigService } from '@nestjs/config';
  * específicas; sem a variável, aceita qualquer uma — a API key + JWT
  * continuam obrigatórios em toda rota de negócio, CORS não é a camada de
  * autorização deste projeto.
+ *
+ * `credentials: true` só quando `CORS_ORIGIN` está definida (achado da
+ * revisão técnica, defesa em profundidade): `credentials: true` + origem
+ * refletida sem restrição é o padrão clássico que auditoria de CORS
+ * assinala. Hoje é inexplorável (autenticação por header customizado, o
+ * navegador nunca anexa isso sozinho — não há cookie envolvido), mas se
+ * um dia o front guardar token em cookie, essa combinação vira vetor de
+ * account takeover. Travar aqui custa 1 linha e elimina o risco antes de
+ * ele existir de verdade.
  */
 export function configureCors(app: INestApplication): void {
   const configService = app.get(ConfigService);
   const corsOrigin = configService.get<string>('CORS_ORIGIN');
   app.enableCors({
     origin: corsOrigin ? corsOrigin.split(',').map((o) => o.trim()) : true,
-    credentials: true,
+    credentials: Boolean(corsOrigin),
   });
 }

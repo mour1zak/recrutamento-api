@@ -50,6 +50,18 @@ describe('AppController (e2e)', () => {
     }
   });
 
+  // Achado da revisão técnica (defesa em profundidade): `credentials: true`
+  // combinado com origem refletida sem restrição é o padrão que auditoria
+  // de CORS assinala. Sem `CORS_ORIGIN` (ambiente de teste não define),
+  // `credentials` nunca deve ir como `true` — trava mesmo que no futuro
+  // alguém volte a autenticar via cookie.
+  it('sem CORS_ORIGIN configurada, nunca envia Access-Control-Allow-Credentials: true', async () => {
+    const res = await request(app.getHttpServer()).get('/health').set('x-api-key', process.env.API_KEY!).set('Origin', 'http://localhost:5173').expect(200);
+    if (res.headers['access-control-allow-credentials'] === 'true') {
+      throw new Error('Access-Control-Allow-Credentials não deveria ser "true" sem CORS_ORIGIN definida');
+    }
+  });
+
   afterEach(async () => {
     await app.close();
   });

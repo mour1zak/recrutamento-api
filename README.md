@@ -296,6 +296,28 @@ aqui — não a senha do `postgres`, que são contas separadas.
 (`CREATEDB` é necessário nesse caso porque o `prisma migrate dev` cria
 um banco "sombra" temporário para calcular diffs de schema.)
 
+**Não tem PostgreSQL instalado, só Docker?** A imagem oficial do
+Postgres cria usuário e banco sozinha, sem `psql`/SQL manual — confirmado
+por execução real: `docker/compose.dev.yml` expõe o Postgres na porta
+`5433` (não `5432`, pra não conflitar com uma instalação nativa), e uma
+conexão de fora do container (testada inclusive de outra máquina na
+rede, não só localhost) aplicou as 4 migrations do projeto sem erro.
+
+```bash
+cp docker/.env.example docker/.env
+# edite docker/.env: troque POSTGRES_PASSWORD e defina POSTGRES_DB=recrutamento_dev
+./docker/compose.sh up -d postgres
+sleep 3
+./docker/compose.sh exec postgres createdb -U recrutamento recrutamento_test
+```
+
+(`./docker/compose.sh`, não `docker compose -f docker/compose.dev.yml`
+direto — só ele carrega `docker/.env`; rodando puro, procuraria um
+`.env` na raiz, que é o do app, não o do Docker.)
+
+`DATABASE_URL` fica `postgresql://recrutamento:<sua-senha>@localhost:5433/recrutamento_dev?schema=public`
+(troque `recrutamento_dev` por `recrutamento_test` no `.env.test`).
+
 ### 4.3 Variáveis de ambiente
 
 ```bash

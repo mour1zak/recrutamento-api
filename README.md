@@ -250,12 +250,6 @@ tentam usá-lo.
 
 ### 4.2 Banco de dados
 
-Duas opções — escolha uma. As duas terminam no mesmo lugar: dois bancos
-(`recrutamento_dev`/`recrutamento_test`) e uma `DATABASE_URL` pra colocar
-no `.env` no próximo passo.
-
-**Opção A — já tem PostgreSQL instalado localmente:**
-
 Abra um cliente SQL conectado como **superusuário** do Postgres (quem
 instalou definiu a senha dele):
 
@@ -264,7 +258,14 @@ instalou definiu a senha dele):
   ```powershell
   & "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost
   ```
-- **Linux/macOS**: normalmente `psql` já está no PATH — `psql -U postgres -h localhost`.
+- **Linux**: `psql` normalmente já está no PATH. O comando completo:
+  ```bash
+  psql -U postgres -h localhost
+  ```
+- **macOS** (Homebrew): idêntico ao Linux —
+  ```bash
+  psql -U postgres -h localhost
+  ```
 - Alternativa em qualquer sistema: pgAdmin (GUI, instalado junto com o
   Postgres na maioria das distribuições) — abra uma "Query Tool" contra o
   servidor local.
@@ -280,34 +281,6 @@ CREATE DATABASE recrutamento_test OWNER recrutamento_app;
 
 (`CREATEDB` é necessário porque o `prisma migrate dev` cria um banco
 "sombra" temporário para calcular diffs de schema.)
-
-**Opção B — não tem PostgreSQL instalado (só Docker):** a aplicação
-continua rodando nativa (`npm run start:dev`), só o banco fica num
-container — sem `psql`, sem `CREATE ROLE` manual, a imagem oficial do
-Postgres cria usuário e banco sozinha a partir de variáveis de ambiente
-(mesmo mecanismo que `docker/compose.obs.yml` já usa e tem verificado;
-esta combinação específica de comandos ainda não foi testada de ponta a
-ponta numa máquina limpa — se algo não bater, é o tipo de coisa que vale
-reportar):
-
-```bash
-cp docker/.env.example docker/.env
-# edite docker/.env: troque POSTGRES_PASSWORD e defina
-# POSTGRES_DB=recrutamento_dev
-./docker/compose.sh up -d postgres
-# cria o segundo banco (o de teste) dentro do mesmo container:
-./docker/compose.sh exec postgres createdb -U recrutamento recrutamento_test
-```
-
-(`./docker/compose.sh` — não `docker compose -f docker/compose.dev.yml`
-direto — porque é ele quem sabe carregar `docker/.env`; rodar o comando
-puro do diretório raiz procuraria um `.env` ali, que é o do app, não o
-do Docker, e as variáveis `POSTGRES_*` viriam vazias.)
-
-A porta é `5433` (não `5432`) de propósito, pra não conflitar com um
-Postgres nativo que porventura já esteja rodando na máquina. `DATABASE_URL`
-fica `postgresql://recrutamento:<sua-senha>@localhost:5433/recrutamento_dev?schema=public`
-(troque `recrutamento_dev` por `recrutamento_test` no `.env.test`, §4.3).
 
 ### 4.3 Variáveis de ambiente
 

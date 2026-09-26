@@ -270,14 +270,28 @@ instalou definiu a senha dele):
   Postgres na maioria das distribuições) — abra uma "Query Tool" contra o
   servidor local.
 
-Depois de conectado, crie um usuário e dois bancos dedicados (dev e
-teste) — **não** use o superusuário `postgres` na aplicação:
+Depois de conectado, crie um **usuário novo e dedicado** pra esta
+aplicação, e os dois bancos (dev e teste) — **não** use o superusuário
+`postgres` na aplicação. É prática de segurança padrão (princípio do
+menor privilégio): se as credenciais da aplicação algum dia vazarem,
+quem as tiver ganha acesso só ao que esta aplicação especificamente usa
+— não vira administrador do servidor inteiro, como aconteceria se a
+aplicação rodasse como `postgres`.
 
 ```sql
 CREATE ROLE recrutamento_app LOGIN PASSWORD 'escolha-uma-senha' CREATEDB;
 CREATE DATABASE recrutamento_dev  OWNER recrutamento_app;
 CREATE DATABASE recrutamento_test OWNER recrutamento_app;
 ```
+
+**Atenção a este ponto — é a causa mais comum de erro de autenticação
+no próximo passo:** `recrutamento_app` e `escolha-uma-senha` nesta linha
+são um usuário **novo**, que você acabou de criar. Não têm nenhuma
+relação com a senha do `postgres` que você usou para conectar no passo
+anterior — são duas contas separadas, cada uma com sua própria senha.
+No `.env` (próximo passo), você vai usar **exatamente este par**
+(`recrutamento_app` + a senha que você escolheu aqui) — nunca a senha do
+`postgres`, e nunca um usuário diferente do que você criou nesta linha.
 
 (`CREATEDB` é necessário porque o `prisma migrate dev` cria um banco
 "sombra" temporário para calcular diffs de schema.)
@@ -288,8 +302,25 @@ CREATE DATABASE recrutamento_test OWNER recrutamento_app;
 cp .env.example .env
 ```
 
-Edite `DATABASE_URL` com o usuário/senha criados acima, e gere valores
-próprios para os segredos (nunca reaproveite os do `.env.example`):
+Edite `DATABASE_URL` com o **mesmo usuário e senha do `CREATE ROLE`
+acima** — nunca `postgres`. Exemplo concreto: se no passo 4.2 você rodou
+
+```sql
+CREATE ROLE recrutamento_app LOGIN PASSWORD 'Senha123!' CREATEDB;
+```
+
+então `DATABASE_URL` fica exatamente:
+
+```
+DATABASE_URL="postgresql://recrutamento_app:Senha123!@localhost:5432/recrutamento_dev?schema=public"
+```
+
+(usuário e senha idênticos, caractere por caractere, ao que você definiu
+no `CREATE ROLE` — só o nome do banco no final é diferente entre
+`.env`/`.env.test`, `recrutamento_dev`/`recrutamento_test`)
+
+Gere valores próprios para os demais segredos (nunca reaproveite os do
+`.env.example`):
 
 ```bash
 openssl rand -hex 32   # para JWT_SECRET

@@ -270,31 +270,31 @@ instalou definiu a senha dele):
   Postgres na maioria das distribuições) — abra uma "Query Tool" contra o
   servidor local.
 
-Depois de conectado, crie um **usuário novo e dedicado** pra esta
-aplicação, e os dois bancos (dev e teste) — **não** use o superusuário
-`postgres` na aplicação. É prática de segurança padrão (princípio do
-menor privilégio): se as credenciais da aplicação algum dia vazarem,
-quem as tiver ganha acesso só ao que esta aplicação especificamente usa
-— não vira administrador do servidor inteiro, como aconteceria se a
-aplicação rodasse como `postgres`.
+Depois de conectado, crie os dois bancos (dev e teste). O jeito mais
+simples é usar o próprio `postgres` (superusuário) na aplicação —
+pra um ambiente local de avaliação, sem exposição externa, isso é
+suficiente:
 
+```sql
+CREATE DATABASE recrutamento_dev;
+CREATE DATABASE recrutamento_test;
+```
+
+**Alternativa mais segura (opcional):** criar um usuário dedicado pra
+aplicação, em vez de usar o superusuário — princípio do menor privilégio
+(se a credencial da aplicação vazar, quem a tiver não vira administrador
+do servidor inteiro):
 ```sql
 CREATE ROLE recrutamento_app LOGIN PASSWORD 'escolha-uma-senha' CREATEDB;
 CREATE DATABASE recrutamento_dev  OWNER recrutamento_app;
 CREATE DATABASE recrutamento_test OWNER recrutamento_app;
 ```
+Se escolher esse caminho, o usuário/senha no `.env` (próximo passo) têm
+que ser **exatamente** `recrutamento_app` + a senha que você definiu
+aqui — não a senha do `postgres`, que são contas separadas.
 
-**Atenção a este ponto — é a causa mais comum de erro de autenticação
-no próximo passo:** `recrutamento_app` e `escolha-uma-senha` nesta linha
-são um usuário **novo**, que você acabou de criar. Não têm nenhuma
-relação com a senha do `postgres` que você usou para conectar no passo
-anterior — são duas contas separadas, cada uma com sua própria senha.
-No `.env` (próximo passo), você vai usar **exatamente este par**
-(`recrutamento_app` + a senha que você escolheu aqui) — nunca a senha do
-`postgres`, e nunca um usuário diferente do que você criou nesta linha.
-
-(`CREATEDB` é necessário porque o `prisma migrate dev` cria um banco
-"sombra" temporário para calcular diffs de schema.)
+(`CREATEDB` é necessário nesse caso porque o `prisma migrate dev` cria
+um banco "sombra" temporário para calcular diffs de schema.)
 
 ### 4.3 Variáveis de ambiente
 
@@ -302,22 +302,20 @@ No `.env` (próximo passo), você vai usar **exatamente este par**
 cp .env.example .env
 ```
 
-Edite `DATABASE_URL` com o **mesmo usuário e senha do `CREATE ROLE`
-acima** — nunca `postgres`. Exemplo concreto: se no passo 4.2 você rodou
+Edite `DATABASE_URL` com o usuário/senha do passo anterior. Se você usou
+o caminho simples (`postgres`):
 
-```sql
-CREATE ROLE recrutamento_app LOGIN PASSWORD 'Senha123!' CREATEDB;
+```
+DATABASE_URL="postgresql://postgres:SUA_SENHA_DO_POSTGRES@localhost:5432/recrutamento_dev?schema=public"
 ```
 
-então `DATABASE_URL` fica exatamente:
+Se você criou o `recrutamento_app` (alternativa mais segura), use
+exatamente esse usuário e a senha que escolheu no `CREATE ROLE` — nunca
+a senha do `postgres`:
 
 ```
 DATABASE_URL="postgresql://recrutamento_app:Senha123!@localhost:5432/recrutamento_dev?schema=public"
 ```
-
-(usuário e senha idênticos, caractere por caractere, ao que você definiu
-no `CREATE ROLE` — só o nome do banco no final é diferente entre
-`.env`/`.env.test`, `recrutamento_dev`/`recrutamento_test`)
 
 Gere valores próprios para os demais segredos (nunca reaproveite os do
 `.env.example`):
@@ -340,8 +338,8 @@ cp .env.test.example .env.test
 ```
 
 Edite `DATABASE_URL` apontando pro banco de teste (`recrutamento_test`,
-mesmo usuário `recrutamento_app`), e gere segredos **próprios, diferentes
-dos do `.env` de dev**:
+mesmo usuário/senha do `.env` de dev), e gere segredos **próprios,
+diferentes dos do `.env` de dev**:
 
 ```bash
 openssl rand -hex 32   # para JWT_SECRET
